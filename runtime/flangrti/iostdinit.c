@@ -160,7 +160,7 @@ __io_ferror(void *p)
 int
 __io_getfd(void *fp)
 {
-  return (((FILE *)fp)->_fileno);
+  return fileno((FILE *)fp);
 }
 
 /* is a tty? */
