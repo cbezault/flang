@@ -15,17 +15,32 @@
  *
  */
 
+#include "flangrti_config.h"
+#if defined(HAVE_GREGSET_T)
 #include <sys/ucontext.h>
 
 void
 dumpregs(gregset_t *regs)
 {
 }
-  
 
 gregset_t *
 getRegs(ucontext_t *u)
 { 
   return (gregset_t *)0;
-} 
+}
 
+#else
+
+void
+dumpregs(void *regs)
+{
+}
+
+void *
+getRegs(void *u)
+{
+  return (void *)0;
+}
+
+#endif
