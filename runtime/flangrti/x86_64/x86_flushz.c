@@ -23,7 +23,6 @@
 void
 __flushz(void)
 {
-#ifdef TARGET_LINUX_X8664
   __asm__("pushq	%rax");
   __asm__("stmxcsr	(%rsp)");
   __asm__("popq	%rax");
@@ -31,6 +30,5 @@ __flushz(void)
   __asm__("pushq	%rax");
   __asm__("ldmxcsr	(%rsp)");
   __asm__("popq	%rax");
-#endif
 }
 
