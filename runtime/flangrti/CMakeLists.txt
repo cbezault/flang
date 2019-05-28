@@ -21,20 +21,20 @@ SET(CMAKE_ASM_FLAGS "${CFLAGS} ${ASM_OPTIONS}" )
 
 if( ${TARGET_ARCHITECTURE} STREQUAL "x86_64" )
   set(ARCH_DEP_FILES 
-    x86_64-Linux/flt_env.c
-    x86_64-Linux/x86_daz.c
-    x86_64-Linux/x86_flushz.c
-    x86_64-Linux/dumpregs.c
+    x86_64/flt_env.c
+    x86_64/x86_daz.c
+    x86_64/x86_flushz.c
+    x86_64/dumpregs.c
   )
 elseif( ${TARGET_ARCHITECTURE} STREQUAL "aarch64" )
   set(ARCH_DEP_FILES
-      aarch64-Linux/flt_env.c
-      aarch64-Linux/dumpregs.c
+    aarch64/flt_env.c
+    aarch64/dumpregs.c
   )
 elseif( ${TARGET_ARCHITECTURE} STREQUAL "ppc64le" )
   set(ARCH_DEP_FILES
-    ppc64le-Linux/flt_env.c
-    ppc64le-Linux/dumpregs.c
+    ppc64le/flt_env.c
+    ppc64le/dumpregs.c
   )
 endif()
 
