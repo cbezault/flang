@@ -16,22 +16,15 @@
 
 enable_language(C ASM) # Enable assembly
 
+set(ARCH_DEP_FILES
+  ${TARGET_ARCHITECTURE}/flt_env.c
+  ${TARGET_ARCHITECTURE}/dumpregs.c
+)
+
 if( ${TARGET_ARCHITECTURE} STREQUAL "x86_64" )
-  set(ARCH_DEP_FILES 
-    x86_64/flt_env.c
+  set(ARCH_DEP_FILES ${ARCH_DEP_FILES}
     x86_64/x86_daz.c
     x86_64/x86_flushz.c
-    x86_64/dumpregs.c
-  )
-elseif( ${TARGET_ARCHITECTURE} STREQUAL "aarch64" )
-  set(ARCH_DEP_FILES
-    aarch64/flt_env.c
-    aarch64/dumpregs.c
-  )
-elseif( ${TARGET_ARCHITECTURE} STREQUAL "ppc64le" )
-  set(ARCH_DEP_FILES
-    ppc64le/flt_env.c
-    ppc64le/dumpregs.c
   )
 endif()
 
