@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1994-2018, NVIDIA CORPORATION.  All rights reserved.
+ * Copyright (c) 1994-2019, NVIDIA CORPORATION.  All rights reserved.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -28,6 +28,7 @@
 #include "soc.h"
 #include "semant.h"
 #include "ast.h"
+#include "pragma.h"
 #include "gramtk.h"
 #include "extern.h"
 #include "commopt.h"
@@ -308,7 +309,7 @@ static void
 convert_omp_workshare(void)
 {
   int std;
-  int newstd;
+  int newstd = 0;
   int ast;
   int lsptr;
   int prevast;
@@ -467,7 +468,7 @@ convert_omp_workshare(void)
           presinglebarrier = 0;
           ompast = gen_pdo(ast);
           newstd = add_stmt_before(ompast, std);
-          if (parallel_depth > 1) 
+          if (parallel_depth > 1)
             STD_PAR(newstd) = 1;
           dolevel++;
           state = IN_PDO;
@@ -508,7 +509,8 @@ convert_omp_workshare(void)
         }
         break;
       }
-      STD_PAR(newstd) = 1;
+      if (newstd)
+        STD_PAR(newstd) = 1;
 
       break;
     case IN_CRITICAL:
@@ -853,6 +855,45 @@ _PDsize(int ast)
   return newast;
 } /* _PDsize */
 
+/**
+ * \brief Used to simplify PD_lbound or PD_ubound call ast nodes to the value
+ *        from shape descriptor of adjustable array.
+ * \param lbound Flag which represents whether this is a call to lbound routine.
+ *               When set to zero, it means call is to ubound.
+ * \param ast    The AST node representing the call to lbound/ubound.
+ * \return       AST node representing value extracted from shape.
+ */
+static int
+_PDbound(int lbound, int ast)
+{
+  int argt, argdim, arg, dim;
+  int rank, shape, bound;
+  argt = A_ARGSG(ast);
+  arg = ARGT_ARG(argt, 0);
+  argdim = ARGT_ARG(argt, 1);
+  /* The implementation requires that argument is an array and that dimension argument
+     is a constant. */
+  if (A_TYPEG(arg) == A_ID &&
+      DTY(A_DTYPEG(arg)) == TY_ARRAY &&
+      A_ALIASG(argdim)) {
+    shape = A_SHAPEG(arg);
+    /* Replacement of bound call can only happen if shape is known */
+    if (shape) {
+      rank = SHD_NDIM(shape);
+      argdim = A_ALIASG(argdim);
+      dim = get_int_cval(A_SPTRG(argdim));
+      if (lbound) {
+        bound = SHD_LWB(shape, dim - 1);
+      } else {
+        bound = SHD_UPB(shape, dim - 1);
+      }
+      return bound;
+    }
+  }
+
+  return ast;
+} /* _PDbound */
+
 /*
  * replace RTE_lbound/RTE_ubound(rank,dim,b1,b2,b3,...)
  */
@@ -1161,6 +1202,10 @@ _simple_replacements(int ast, int *pany)
            *  size(expr,dim) ==> product(ubound(shape,dim)-lbound(shape,dim)+1)
            */
           newast = _PDsize(ast);
+        } else if (PDNUMG(fsptr) == PD_lbound) {
+          newast = _PDbound(1, ast);
+        } else if (PDNUMG(fsptr) == PD_ubound) {
+          newast = _PDbound(0, ast);
         }
         if (newast != ast) {
           if (A_DTYPEG(newast) != A_DTYPEG(ast))
@@ -3854,6 +3899,10 @@ new_sptr:
   if (!par) {
     STD_HSTBLE(astd) = dstd;
     STD_HSTBLE(dstd) = astd;
+    if (STD_ACCEL(alloc_stmt))
+      STD_RESCOPE(astd) = 1;
+    if (STD_ACCEL(dealloc_stmt))
+      STD_RESCOPE(dstd) = 1;
   }
 
   GET_T_LIST(q);

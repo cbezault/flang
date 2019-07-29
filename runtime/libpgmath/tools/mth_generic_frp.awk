@@ -79,8 +79,8 @@ function init_target()
   # Scalar types
   sts["s"] = "float"
   sts["d"] = "double"
-  sts["c"] = "float complex"
-  sts["z"] = "double complex"
+  sts["c"] = "float _Complex"
+  sts["z"] = "double _Complex"
   sts["i"] = "int32_t"
   sts["k"] = "long long"
 
@@ -157,6 +157,9 @@ function do_all_rr()
       func_rr_def("div", frp, sd, two_args)
       func_rr_def("sqrt", frp, sd, one_arg)
       func_rr_def("mod", frp, sd, two_args)
+      func_rr_def("aint", frp, sd, one_arg)
+      func_rr_def("ceil", frp, sd, one_arg)
+      func_rr_def("floor", frp, sd, one_arg)
     }
   }
 }

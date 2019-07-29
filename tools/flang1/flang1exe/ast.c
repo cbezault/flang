@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1994-2018, NVIDIA CORPORATION.  All rights reserved.
+ * Copyright (c) 1994-2019, NVIDIA CORPORATION.  All rights reserved.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -575,7 +575,7 @@ mk_cval(INT v, DTYPE dtype)
    * 32-bit value, converts them appropriately if necessary, and
    * calls the 'real' mk_cval1.
    */
-  INT64 v1;
+  DBLINT64 v1;
 
   if (DTY(dtype) == TY_INT8) {
     if (v < 0)
@@ -600,7 +600,7 @@ int
 mk_isz_cval(ISZ_T v, DTYPE dtype)
 {
   if (dtype == DT_INT8) {
-    INT64 num;
+    DBLINT64 num;
 
     ISZ_2_INT64(v, num);
     return mk_cval1(getcon(num, DT_INT8), DT_INT8);
@@ -694,7 +694,7 @@ mk_binop(int optype, int lop, int rop, DTYPE dtype)
   LOGICAL commutable;
   INT v1, v2;
   int c1, c2;
-  INT64 inum1, inum2;
+  DBLINT64 inum1, inum2;
 
 #if DEBUG
   if (A_TYPEG(lop) == A_TRIPLE || A_TYPEG(rop) == A_TRIPLE) {
@@ -1114,7 +1114,7 @@ reduce_i8add(int opnd, int con_st)
   int c1;
   int lop, rop;
   int tmp;
-  INT64 inum1, inum2;
+  DBLINT64 inum1, inum2;
 
 #if DEBUG
   assert(opnd, "reduce_i8add:opnd is 0", con_st, 3);
@@ -3728,6 +3728,46 @@ remove_stmt(int std)
   STD_PREV(std) = 0;
 }
 
+/* Move std(s) before stdbefore */
+void
+move_range_before(int sstd, int estd, int stdbefore)
+{
+  if (!(sstd && estd && stdbefore))
+    return;
+
+  STD_NEXT(STD_PREV(sstd)) = STD_NEXT(estd);
+  STD_PREV(STD_NEXT(estd)) = STD_PREV(sstd);
+
+  if (sstd == estd) {
+    insert_stmt_before(sstd, stdbefore);
+  } else {
+    STD_NEXT(STD_PREV(stdbefore)) = sstd;
+    STD_PREV(sstd) = STD_PREV(stdbefore);
+    STD_PREV(stdbefore) = estd;
+    STD_NEXT(estd) = stdbefore;
+  }
+}
+
+/* Move std(s) after stdafter */
+void
+move_range_after(int sstd, int estd, int stdafter)
+{
+  if (!(sstd && estd && stdafter))
+    return;
+
+  STD_NEXT(STD_PREV(sstd)) = STD_NEXT(estd);
+  STD_PREV(STD_NEXT(estd)) = STD_PREV(sstd);
+
+  if (sstd == estd) {
+    insert_stmt_after(sstd, stdafter);
+  } else {
+    STD_PREV(STD_NEXT(stdafter)) = estd;
+    STD_NEXT(estd) = STD_NEXT(stdafter);
+    STD_NEXT(stdafter) = sstd;
+    STD_PREV(sstd) = stdafter;
+  }
+}
+
 /* Move all STDs starting with std to before stdbefore */
 void
 move_stmts_before(int std, int stdbefore)
@@ -3737,6 +3777,9 @@ move_stmts_before(int std, int stdbefore)
     stdnext = STD_NEXT(std);
     remove_stmt(std);
     insert_stmt_before(std, stdbefore);
+    if (flg.smp) {
+      set_par(std);
+    }
   }
 }
 
@@ -3749,6 +3792,9 @@ move_stmts_after(int std, int stdafter)
     stdnext = STD_NEXT(std);
     remove_stmt(std);
     insert_stmt_after(std, stdafter);
+    if (flg.smp) {
+      set_par(std);
+    }
   }
 }
 
@@ -4971,6 +5017,12 @@ ast_rewrite(int ast)
   case A_MP_ATOMICREAD:
   case A_MP_ATOMICUPDATE:
   case A_MP_ATOMICCAPTURE:
+  case A_MP_MAP:
+  case A_MP_EMAP:
+  case A_MP_TARGETLOOPTRIPCOUNT:
+  case A_MP_EREDUCTION:
+  case A_MP_BREDUCTION:
+  case A_MP_REDUCTIONITEM:
     break;
   case A_MP_ATOMICWRITE:
     rop = ast_rewrite(A_ROPG(ast));
@@ -5827,6 +5879,12 @@ ast_trav_recurse(int ast, int *extra_arg)
   case A_MP_TASKREG:
   case A_MP_TASKDUP:
   case A_MP_ETASKLOOPREG:
+  case A_MP_MAP:
+  case A_MP_EMAP:
+  case A_MP_TARGETLOOPTRIPCOUNT:
+  case A_MP_EREDUCTION:
+  case A_MP_BREDUCTION:
+  case A_MP_REDUCTIONITEM:
     break;
   case A_MP_BMPSCOPE:
 #if DEBUG
@@ -7719,7 +7777,7 @@ const_fold(int opr, INT conval1, INT conval2, DTYPE dtype)
   SNGL real1, real2, realrs, imag1, imag2, imagrs;
   SNGL temp1, temp2;
   UINT val1, val2;
-  INT64 inum1, inum2, ires;
+  DBLINT64 inum1, inum2, ires;
   int cvlen1, cvlen2, urs, q0;
   char *p, *q;
 
@@ -9192,6 +9250,29 @@ rewrite_ast_with_new_dtype(int ast, DTYPE dtype)
     }
   }
   return ast;
+}
+
+/*
+ * Create a duplicated AST
+ */
+int
+mk_duplicate_ast(int ast)
+{
+  int newast;
+
+  /*switch (A_TYPEG(ast)) {
+  case A_PRAGMA:
+    newast = mk_stmt(A_PRAGMA, 0);
+    astb.stg_base[newast] = astb.stg_base[ast];
+    break;
+  default:
+    interr("mk_duplicate_ast: A_TYPE is not supported yet",
+           A_TYPEG(ast), ERR_Informational);
+           }*/
+  newast = mk_stmt(A_TYPEG(ast), 0);
+  astb.stg_base[newast] = astb.stg_base[ast];
+
+  return newast;
 }
 
 /* Get the most credible shape (rank and extents) of an AST from the various

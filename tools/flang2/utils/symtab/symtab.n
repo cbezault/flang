@@ -1,5 +1,5 @@
 .\"/*
-.\" * Copyright (c) 1994-2018, NVIDIA CORPORATION.  All rights reserved.
+.\" * Copyright (c) 1994-2019, NVIDIA CORPORATION.  All rights reserved.
 .\" *
 .\" * Licensed under the Apache License, Version 2.0 (the "License");
 .\" * you may not use this file except in compliance with the License.
@@ -394,6 +394,8 @@ Other Fields
 .SE RFCNT w13
 Number of references of this label.
 This includes references in
+.SE RFCNTDEV w14
+Number of references of this label for openmp device code.
 .cw ASSIGN
 and assigned
 .cw GOTO
@@ -603,6 +605,8 @@ variables, indicates that address has been assigned.
 Set if we need to "re-reference" variable (call back-end's sym_is_refd). This
 can occur if we have a type extension with initializations in the parent
 component which require a call to assn_static_off() in back end's sym_is_refd() function.
+.FL WEAK f119
+Set if this variable is a weak symbol.
 .FL ADDRTKN f8
 Variable has appeared as a subprogram argument or in a %LOC.
 Set by Expander.
@@ -839,12 +843,18 @@ This variable is a data initialized variable packed into an array.
 Set if variable is shared in parallel region.
 .FL PARREFLOAD f96
 Set if variable is already loaded into struct to be passed to outlined function.
+.lp
+.ul
+Flags4
 .FL LOCARG f99
 Variable has appeared in a %LOC.
 .FL ALLDEFAULTINIT f100
 default initialization.
 .FL TARGET f108
 Set if variable has the target attribute
+.FL LIBSYM f111
+Indicates that this is a variable symbol from a standard module, such as
+ieee_arithmetic or iso_c_binding, that is resolved from a system library.
 .lp
 .ul
 Other Fields
@@ -1154,8 +1164,6 @@ name list group.
 .lp
 .ul
 Flags
-.FL HAS_OPT_ARGS f110
-Set if this entry has optional arguments.
 .FL DCLD
 Set if currently processing a function subprogram and the
 data type of this entry has been explicitly declared.
@@ -1224,6 +1232,32 @@ Subroutine contains alternate return arguments
 .FL DEVCOMP f107
 Set if this routine was compiled with the -acc or -ta flag, meaning the
 compiler was device-aware.
+.FL OMPACCRT f109
+Set if the symbol is created for libomptarget runtime.
+.FL OMPACCSTRUCT f111
+Set if the symbol is openmp offload entry struct and createad for libomptarget runtime.
+.FL OMPACCFUNCDEV f112
+Set if the symbol is device function of openmp accelerator model
+.FL OMPACCFUNCKERNEL f113
+Set if the symbol is device kernel of openmp accelerator model
+.FL OMPACCDEVSYM f114
+Set if the symbol is used in target region.
+.FL OMPACCSHMEM f115
+Set if the symbol is scrathpad memory aka. shared memory
+.FL TEXTSTARTUP f117
+Set as text startup item
+.FL CONSTRUCTOR f118
+Set as constructor
+.FL IS_INTERFACE f120
+Set if the symbol is a Fortran interface
+.FL OMPTEAMPRIVATE f121
+Team private symbol
+.SE PRIORITY w27
+If CONSTRUCTORG() or DESTRUCTORG() is true, then this has
+the value 0-65535 for the priority value.
+A value of -1 means that the priority was not set.
+.FL HAS_OPT_ARGS f110
+Set if this entry has optional arguments.
 .lp
 .ul
 Other Fields
@@ -1306,8 +1340,6 @@ Store taskdup routine sptr for outlined taskloop routine.
 .lp
 .ul
 Flags
-.FL HAS_OPT_ARGS 
-Set if this procedure has optional arguments.
 .FL DCLD
 Data type of this (function) subprogram has been explicitly declared.
 .FL CCSYM
@@ -1450,7 +1482,11 @@ into a subroutine whose first argument is the original result.
 .FL DEVCOMP f107
 Set if this routine was compiled with the -acc or -ta flag, meaning the
 compiler was device-aware.
-.lp
+.FL HAS_OPT_ARGS 
+Set if this procedure has optional arguments.
+.FL LIBSYM f111
+Indicates that this is a routine symbol from a standard module, such as
+ieee_arithmetic or iso_c_binding, that is resolved from a system library.
 .ul
 Other Fields
 .SE SYMLK
@@ -1996,9 +2032,11 @@ Internal to the PGFTN compiler.
 or
 .cw "integer*4" .
 .TY TY_INT8 integer*8 INT BASIC SCALAR VEC DWORD
+.TY TY_HALF "real*2" REAL BASIC SCALAR VEC WORD
 .TY TY_REAL real REAL BASIC SCALAR VEC WORD
 .TY TY_DBLE "double precision" REAL BASIC SCALAR VEC DWORD
 .TY TY_QUAD "real*16" REAL BASIC SCALAR VEC
+.TY TY_HCMPLX "half complex" CMPLX BASIC SCALAR VEC WORD
 .TY TY_CMPLX complex CMPLX BASIC SCALAR VEC DWORD
 (2 x 32-bit).
 .TY TY_DCMPLX "double complex" CMPLX BASIC SCALAR VEC
@@ -2146,9 +2184,11 @@ on context.  Internal to the PGFTN compiler.
 .PD DT_SINT integer*2 TY_SINT
 .PD DT_INT integer TY_INT
 .PD DT_INT8 "integer*8" TY_INT8
+.PD DT_HALF "real*2" TY_HALF
 .PD DT_REAL real TY_REAL
 .PD DT_DBLE real*8 TY_DBLE
 .PD DT_QUAD real*16 TY_QUAD
+.PD DT_HCMPLX "half complex" TY_HCMPLX
 .PD DT_CMPLX complex TY_CMPLX
 .PD DT_DCMPLX "double complex" TY_DCMPLX
 .PD DT_BLOG "logical*1" TY_BLOG

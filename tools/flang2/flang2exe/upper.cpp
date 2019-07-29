@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1997-2018, NVIDIA CORPORATION.  All rights reserved.
+ * Copyright (c) 1997-2019, NVIDIA CORPORATION.  All rights reserved.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -71,6 +71,8 @@ static int getbit(char *bitname);
 #define STB_UPPER() (gbl.stbfil != NULL)
 static void do_llvm_sym_is_refd(void);
 static void build_agoto(void);
+static void free_modvar_alias_list(void);
+static void save_modvar_alias(SPTR sptr, const char *alias_name);
 
 static void init_upper(void);
 static void read_fileentries(void);
@@ -143,6 +145,7 @@ static const namelist Datatypes[] = {
     "Logical2",  "L2",  TY_SLOG,   "Logical4",   "L4", TY_LOG,
     "Logical8",  "L8",  TY_LOG8,   "Numeric",    "N",  TY_NUMERIC,
     "Pointer",   "P",   TY_PTR,    "proc",       "p",  TY_PROC,
+    "Real2",     "R2",  TY_HALF,  
     "Real4",     "R4",  TY_REAL,   "Real8",      "R8", TY_DBLE,
     "Real16",    "R16", TY_QUAD,   "Struct",     "S",  TY_STRUCT,
     "Word4",     "W4",  TY_WORD,   "Word8",      "W8", TY_DWORD,
@@ -308,6 +311,13 @@ TraceOutput(const char *fmt, ...)
 #define Trace(a)
 #endif
 
+typedef struct alias_syminfo {
+  SPTR sptr;
+  const char *alias;
+  struct alias_syminfo *next;
+} alias_syminfo;
+static alias_syminfo *modvar_alias_list;
+
 /* for processing data initialization */
 typedef struct typestack {
   DTYPE dtype;
@@ -428,7 +438,8 @@ void
 upper(int stb_processing)
 {
   ISZ_T size;
-  int first, firstinternal, gstaticbase;
+  SPTR first;
+  int firstinternal, gstaticbase;
   static long ilmpos;
   extern void set_private_size(ISZ_T);
 
@@ -450,7 +461,7 @@ upper(int stb_processing)
       gbl.locaddr = 0;
       gbl.statics = NOSYM;
       gbl.locals = NOSYM;
-      gbl.cuda_constructor = TRUE;
+      gbl.cuda_constructor = true;
       gbl.paddr = 0;
       gbl.internal = 0;
       return;
@@ -503,12 +514,12 @@ upper(int stb_processing)
   gbl.locaddr = size;
 
   endilmfile = read_line();
-  first = getval("STATICS");
-  gbl.statics = (SPTR) first; // ???
+  first = getSptrVal("STATICS");
+  gbl.statics = first;
 
   endilmfile = read_line();
-  first = getval("LOCALS");
-  gbl.locals = (SPTR) first; // ???
+  first = getSptrVal("LOCALS");
+  gbl.locals = first;
 
   endilmfile = read_line();
   size = getval("PRIVATES");
@@ -1109,7 +1120,7 @@ static void
 init_upper(void)
 {
   gbl.entries = NOSYM;
-  gbl.cuda_constructor = FALSE;
+  gbl.cuda_constructor = false;
   soc.avail = 1;
 
   errors = 0;
@@ -1134,6 +1145,9 @@ init_upper(void)
     NEW(ipab.info, IPAinfo, ipab.infosize);
   }
   ipab.infoavl = 1;
+  if (modvar_alias_list) {
+    free_modvar_alias_list();
+  }
 } /* init_upper */
 
 /*
@@ -1430,12 +1444,12 @@ getbit(char *bitname)
 
 /* get a pair of numbers first:second */
 static void
-getpair(int *first, int *second)
+getpair(SPTR *first, SPTR *second)
 {
   int val, neg;
   if (endilmfile) {
     fprintf(stderr, "ILM file: looking past end-of-file for number pair\n");
-    *first = *second = 0;
+    *first = *second = SPTR_NULL;
     ++errors;
     return;
   }
@@ -1452,14 +1466,14 @@ getpair(int *first, int *second)
     val = val * 10 + (line[pos] - '0');
     ++pos;
   }
-  *first = val * neg;
+  *first = (SPTR)(val * neg);
 
   if (line[pos] != ':') {
     fprintf(stderr,
             "ILM file line %d: expecting number pair\n"
             "instead got: %s\n",
             ilmlinenum, line + pos);
-    *second = 0;
+    *second = SPTR_NULL;
     ++errors;
     return;
   }
@@ -1475,7 +1489,7 @@ getpair(int *first, int *second)
     val = val * 10 + (line[pos] - '0');
     ++pos;
   }
-  *second = val * neg;
+  *second = (SPTR)(val * neg);
 } /* getpair */
 
 static int
@@ -1624,7 +1638,9 @@ read_datatype(void)
   SPTR member;
   int align;
   DTYPE subtype;
-  int ndim, lower, upper, i;
+  int ndim;
+  SPTR lower, upper;
+  int i;
   SPTR tag;
   ISZ_T size;
   ADSC *ad;
@@ -1743,10 +1759,10 @@ read_datatype(void)
       getpair(&lower, &upper);
       AD_LWBD(ad, i) = lower; /* to be fixed after symbols added */
       AD_UPBD(ad, i) = upper; /* to be fixed after symbols added */
-      AD_MLPYR(ad, i) = getval("mpy");
+      AD_MLPYR(ad, i) = getSptrVal("mpy");
     }
     AD_ZBASE(ad) = getval("zbase");
-    AD_NUMELM(ad) = getval("numelm");
+    AD_NUMELM(ad) = getSptrVal("numelm");
     datatypexref[dtype] = dt;
     break;
   case TY_PTR:
@@ -1775,7 +1791,12 @@ fix_datatype(void)
 {
   int d;
   DTYPE dtype;
-  int ndim, i, lower, upper, member, mlpyr, zbase, numelm;
+  int ndim, i;
+  SPTR lower, upper;
+  int member;
+  SPTR mlpyr;
+  int zbase;
+  SPTR numelm;
   DTYPE subtype;
   SPTR tag;
   ADSC *ad;
@@ -1997,9 +2018,10 @@ read_symbol(void)
   /* flags: */
   int addrtkn, adjustable, afterentry, altname, altreturn, aret, argument,
       assigned, assumedshape, assumedsize, autoarray, blank, Cfunc, ccsym, clen,
-      cmode, common, constant, count, currsub, decl, descriptor, intentin,
-      texture, device, dll, dllexportmod, enclfunc, end, endlab, format, func,
-    gsame, gdesc, hccsym, hollerith, init, isdesc, linenum;
+    cmode, common, constant, count, currsub, decl;
+  SPTR descriptor;
+  int intentin, texture, device, dll, dllexportmod, enclfunc, end, endlab,
+    format, func, gsame, gdesc, hccsym, hollerith, init, isdesc, linenum;
   SPTR link;
   int managed,
       member, midnum, mscall, namelist, needmod, nml, noconflict, passbyval,
@@ -2018,12 +2040,14 @@ read_symbol(void)
   int unlpoly, allocattr, f90pointer, final, finalized, kindparm;
   int lenparm, isoctype;
   int inmodproc, cudamodule, datacnst, fwdref;
-  int agoto, parref, parsyms, parsymsct, paruplevel;
+  int agoto, parref, parsyms, parsymsct, paruplevel, is_interface;
   int typedef_init;
   int alldefaultinit;
   int tpalloc, procdummy, procdesc, has_opts;
   ISZ_T address, size;
   SPTR sptr = getSptrVal("symbol");
+  bool has_alias = false;
+  char *alias_name;
 #if DEBUG
   if (sptr > symbolcount) {
     fprintf(stderr, "Symbol count was %d, but new symbol number is %d\n",
@@ -2094,6 +2118,19 @@ read_symbol(void)
     common = getval("common");
     link = getSptrVal("link");
     midnum = getval("midnum");
+    if (flg.debug && gbl.rutype != RU_BDATA &&
+        stype == ST_VAR && sclass == SC_CMBLK) {
+      /* Retrieve debug info for renaming and restricted importing
+       * of module variables */
+      has_alias = getbit("has_alias");
+      if (has_alias) {
+        const int namelen = getnamelen();
+        NEW(alias_name, char, namelen + 1);
+        strncpy(alias_name, line + pos, namelen);
+        alias_name[namelen] = '\0';
+        pos += namelen;
+      }
+    }
     if (sclass == SC_DUMMY) {
       origdum = getval("origdummy");
     }
@@ -2109,7 +2146,7 @@ read_symbol(void)
       isdesc = getbit("isdesc");
       sdsccontig = getbit("contig");
       origdim = getval("origdim");
-      descriptor = getval("descriptor");
+      descriptor = getSptrVal("descriptor");
     }
     parref = getbit("parref");
     enclfunc = getval("enclfunc");
@@ -2136,7 +2173,7 @@ read_symbol(void)
     parent = getSptrVal("parent");
 
     if (stype == ST_VAR) { /* TBD - for polymorphic variable */
-      descriptor = getval("descriptor");
+      descriptor = getSptrVal("descriptor");
     }
 
     reref = getbit("reref");
@@ -2189,7 +2226,7 @@ read_symbol(void)
       /* get the pointer to the array bounds descriptor */
       ad = AD_DPTR(dt);
       AD_NUMDIM(ad) = 1;
-      AD_SDSC(ad) = 0;
+      AD_SDSC(ad) = SPTR_NULL;
     }
     SCP(newsptr, sclass);
     DTYPEP(newsptr, dtype);
@@ -2307,6 +2344,8 @@ read_symbol(void)
     }
     PARREFP(newsptr, parref);
     ENCLFUNCP(newsptr, enclfunc);
+    if (XBIT(119, 0x2000000) && enclfunc)
+      LIBSYMP(newsptr, LIBSYMG(symbolxref[enclfunc]));
     if (passbyflags) {
       PASSBYVALP(newsptr, passbyval);
       PASSBYREFP(newsptr, passbyref);
@@ -2329,6 +2368,8 @@ read_symbol(void)
     }
     INTENTINP(newsptr, intentin);
     ALLOCATTRP(newsptr, allocattr);
+    if (flg.debug && has_alias)
+      save_modvar_alias(newsptr, alias_name);
     break;
 
   case ST_CMBLK:
@@ -2578,10 +2619,10 @@ read_symbol(void)
     has_opts = getbit("has_opts");
 
     if (altreturn) {
-      gbl.arets = TRUE;
+      gbl.arets = true;
     }
     if (denorm) {
-      gbl.denorm = TRUE;
+      gbl.denorm = true;
     }
 
     if (paramcount == 0) {
@@ -2639,7 +2680,7 @@ read_symbol(void)
         gbl.entries = newsptr;
       }
       if (recursive)
-        flg.recursive = TRUE;
+        flg.recursive = true;
     } else if (gbl.entries <= NOSYM) {
       SYMLKP(newsptr, NOSYM);
       gbl.entries = newsptr;
@@ -2684,7 +2725,7 @@ read_symbol(void)
         NEW(agototab, int, agotosz);
         agotomax = 0;
       }
-      NEED(agoto, agototab, int, agotosz, agotosz + 32);
+      NEED(agoto, agototab, int, agotosz, agoto + 32);
       agototab[agoto - 1] = newsptr;
       if (agoto > agotomax)
         agotomax = agoto;
@@ -2699,7 +2740,7 @@ read_symbol(void)
     contigattr = getbit("contigattr");
     pointer = getbit("pointer");
     address = getval("address");
-    descriptor = getval("descriptor");
+    descriptor = getSptrVal("descriptor");
     noconflict = getbit("noconflict");
     link = getSptrVal("link");
     tbplnk = getval("tbplnk");
@@ -2788,7 +2829,7 @@ read_symbol(void)
     CMEMFP(newsptr, nml);
     CMEMLP(newsptr, nml + count - 1);
 
-    SYMLKP(newsptr, (SPTR) sem.nml); // ???
+    SYMLKP(newsptr, sem.nml);
     sem.nml = newsptr;
     break;
 
@@ -2885,7 +2926,8 @@ read_symbol(void)
     vararg = getbit("vararg");
     has_opts = getbit("has_opts");
     parref = getbit("parref");
-    descriptor = (sclass == SC_DUMMY) ? getval("descriptor") : 0;
+    is_interface = getbit("is_interface");
+    descriptor = (sclass == SC_DUMMY) ? getSptrVal("descriptor") : SPTR_NULL;
 
     if (paramcount == 0) {
       dpdsc = 0;
@@ -2947,9 +2989,79 @@ read_symbol(void)
     CUDAMODULEP(newsptr, cudamodule);
 #endif
     FWDREFP(newsptr, fwdref);
+    TYPDP(newsptr, needmod && typed);
 
-    if (needmod && typed) {
-      TYPDP(newsptr, 1);
+    if (XBIT(119, 0x2000000)) {
+      // Set LIBSYM for -Msecond_underscore processing.
+      char *s = SYMNAME(newsptr);
+      if (needmod) {
+        switch (*s) {
+        case 'a':
+          if (strncmp(s, "accel_lib", 9) == 0)
+            LIBSYMP(newsptr, true);
+          break;
+        case 'i':
+          if (strncmp(s, "ieee_arithmetic", 15) == 0 ||
+              strncmp(s, "ieee_exceptions", 15) == 0 ||
+              strncmp(s, "ieee_features",   13) == 0 ||
+              strncmp(s, "iso_c_binding",   13) == 0 ||
+              strncmp(s, "iso_fortran_env", 15) == 0)
+            LIBSYMP(newsptr, true);
+          break;
+        case 'o':
+          if (strncmp(s, "omp_lib", 7) == 0)
+            LIBSYMP(newsptr, true);
+          break;
+        case 'p':
+          if (strncmp(s, "pgi_acc_common", 14) == 0)
+            LIBSYMP(newsptr, true);
+          break;
+        }
+      } else if (inmod) {
+        LIBSYMP(newsptr, LIBSYMG(symbolxref[inmod]));
+      } else if (strncmp(s, "omp_", 4) == 0) {
+        // This code should execute when OpenMP routines are used without
+        // 'use omp_lib', and should typically set LIBSYM.
+        static const char *omp_name[] = {
+          "destroy_lock",             "destroy_nest_lock",
+          "get_active_level",         "get_ancestor_thread_num",
+          "get_cancellation",         "get_default_device",
+          "get_dynamic",              "get_initial_device",
+          "get_level",                "get_max_active_levels",
+          "get_max_task_priority",    "get_max_threads",
+          "get_nested",               "get_num_devices",
+          "get_num_places",           "get_num_procs",
+          "get_num_teams",            "get_num_threads",
+          "get_partition_num_places", "get_partition_place_nums",
+          "get_place_num",            "get_place_num_procs",
+          "get_place_proc_ids",       "get_proc_bind",
+          "get_schedule",             "get_team_num",
+          "get_team_size",            "get_thread_limit",
+          "get_thread_num",           "get_wtick",
+          "get_wtime",                "in_parallel",              
+          "init_lock",                "init_nest_lock",
+          "init_nest_lock_with_hint", "is_initial_device",
+          "set_default_device",       "set_dynamic",
+          "set_lock",                 "set_max_active_levels",
+          "set_nest_lock",            "set_nested",
+          "set_num_threads",          "set_schedule",
+          "test_lock",                "test_nest_lock",
+          "unset_lock",               "unset_nest_lock",
+        };
+        int c, l, m, u;
+        s += 4;
+        for (l=0, u=sizeof(omp_name)/sizeof(char*)-1, m=u/2; l<=u; m=(l+u)/2) {
+          c = strcmp(s, omp_name[m]);
+          if (c == 0) {
+            LIBSYMP(newsptr, true);
+            break;
+          }
+          if (c < 0)
+            u = m - 1;
+          else
+            l = m + 1;
+        }
+      }
     }
 
     if (sclass != SC_DUMMY && sptr != gbl.outersub && !Class && !inmodproc) {
@@ -2985,6 +3097,7 @@ read_symbol(void)
     }
     VARARGP(newsptr, vararg);
     PARREFP(newsptr, parref);
+    IS_INTERFACEP(newsptr, is_interface);
     SDSCP(newsptr, descriptor);
     HAS_OPT_ARGSP(newsptr, has_opts);
     break;
@@ -3083,6 +3196,8 @@ read_symbol(void)
 
         DTYPEP(newsptr, INTTYPG(i));
         SCP(newsptr, SC_EXTERN);
+        if (XBIT(119, 0x2000000))
+          LIBSYMP(newsptr, strncmp(SYMNAME(newsptr), "ftn_", 4) == 0);
         SYMLKP(newsptr, gbl.externs);
         gbl.externs = newsptr;
         if (WINNT_CALL)
@@ -3101,7 +3216,7 @@ read_symbol(void)
       /* ST_TYPEDEF */
       fromMod = getbit("frommod");
       parent = getSptrVal("parent");
-      descriptor = getval("descriptor");
+      descriptor = getSptrVal("descriptor");
       Class = getbit("class");
       alldefaultinit = getbit("alldefaultinit");
       unlpoly = getbit("unlpoly");
@@ -3146,7 +3261,9 @@ read_symbol(void)
       up = llmp_create_uplevel_bykey(parsyms);
       up->parent = parent;
       for (i = 0; i < parsymsct; ++i) {
-        llmp_add_shared_var(up, getnum());
+	/* todo this should be removed as it's wrong.
+	 * Keep it until tested. */
+	llmp_add_shared_var(up, getnum());
       }
     }
 
@@ -3218,9 +3335,9 @@ read_program(void)
   gbl.rutype = getRUType();
   gbl.has_program |= (gbl.rutype == RU_PROG);
   if (gbl.rutype == RU_PROG) {
-    flg.recursive = FALSE;
+    flg.recursive = false;
   } else if (flg.smp) {
-    flg.recursive = TRUE;
+    flg.recursive = true;
   }
 } /* read_program */
 
@@ -3375,7 +3492,9 @@ fix_symbol(void)
   int altname;
   DTYPE dtype;
   int parsyms, parsymsct, paruplevel;
-  int clen, common, count, dpdsc, desc, enclfunc, inmod, scope;
+  int clen, common, count, dpdsc;
+  SPTR desc;
+  int enclfunc, inmod, scope;
   SPTR lab, link;
   int midnum, member, nml, paramcount, plist, val, origdum;
   int typedef_init;
@@ -3777,7 +3896,7 @@ fix_symbol(void)
       }
       break;
     case ST_GENERIC:
-      for (desc = GNDSCG(sptr); desc; desc = SYMI_NEXT(desc)) {
+      for (desc = (SPTR)GNDSCG(sptr); desc; desc = (SPTR)SYMI_NEXT(desc)) {
         int spec;
         spec = SYMI_SPTR(desc);
         spec = symbolxref[spec];
@@ -3925,7 +4044,8 @@ static DTYPE
 create_threadprivate_dtype(void)
 {
   DTYPE dt;
-  int zero, one, maxcpu, maxcpup1, val[4];
+  SPTR zero, one, maxcpu, maxcpup1;
+  int val[4];
   ADSC *ad;
   return DT_ADDR;
 
@@ -4148,7 +4268,7 @@ read_ilm(void)
       ++errors;
     }
     if (opc == IM_AGOTO) {
-      gbl.asgnlbls = -1;
+      gbl.asgnlbls = NME_NULL;
     }
 
     numoperands = info[op].numoperands;
@@ -4427,7 +4547,7 @@ read_init(void)
   DTYPE dtypev;
   int a;
   DTYPE dt;
-  static int sptr = 0;  /* the symbol being initialized */
+  static SPTR sptr = SPTR_NULL;  /* the symbol being initialized */
   static DTYPE dtype; /* the datatype of that symbol */
   static int offset = 0;
   int movemember = 1;
@@ -4543,13 +4663,15 @@ read_init(void)
     ts[tsl].dtype = DTYPEG(sptr);
     ts[tsl].member = SPTR_NULL;
     break;
-  case 'L': /* Label */
+  case 'L': { /* Label */
+    SPTR sptr;
     val = getval("Label");
-    val = symbolxref[val];
-    dinit_put(DINIT_LABEL, val);
-    if (!UPLEVELG(val))
-      sym_is_refd((SPTR) val); // ???
-    break;
+    sptr = symbolxref[val];
+    val = sptr;
+    dinit_put(DINIT_LABEL, sptr);
+    if (!UPLEVELG(sptr))
+      sym_is_refd(sptr);
+  } break;
   case 'n': /* namelist */
     val = getval("namelist");
     sptr = symbolxref[val];
@@ -5423,7 +5545,7 @@ getexnamestring(char *string, int sptr, int stype, int scg, int extraunderscore)
       if (stype == ST_ENTRY || extraunderscore) {
         if (!XBIT(119, 0x01000000)) {
           id[l++] = '_';
-          if (XBIT(119, 0x02000000) && has_underscore) {
+          if (XBIT(119, 0x2000000) && has_underscore && !LIBSYMG(sptr)) {
             id[l++] = '_';
           }
         }
@@ -6219,8 +6341,8 @@ cuda_emu_start(void)
     cusv.x5 = flg.x[5];
     cusv.x121 = flg.x[121];
     cusv.x123 = flg.x[123];
-    flg.smp = FALSE;
-    flg.recursive = TRUE;
+    flg.smp = false;
+    flg.recursive = true;
     flg.profile = 0;
     flg.x[121] |= 0x1; /* -Mnoframe */
     if (flg.debug) {
@@ -6332,5 +6454,50 @@ build_agoto(void)
   exp_build_agoto(agototab, agotomax);
   FREE(agototab);
   agotosz = 0;
+}
+
+const char *
+lookup_modvar_alias(SPTR sptr)
+{
+  alias_syminfo *node = modvar_alias_list;
+  while (node) {
+    if (node->sptr == sptr) {
+      return node->alias;
+    }
+    node = node->next;
+  }
+  return NULL;
+}
+
+/**
+   \brief Given a alias name of a mod var sptr, create a new alias_syminfo node
+   and add it to the linked list for later lookup.
+ */
+static void
+save_modvar_alias(SPTR sptr, const char *alias_name)
+{
+  alias_syminfo *new_alias_info;
+  if (!alias_name || lookup_modvar_alias(sptr))
+    return;
+  NEW(new_alias_info, alias_syminfo, 1);
+  new_alias_info->sptr = sptr;
+  new_alias_info->alias = alias_name;
+  new_alias_info->next = modvar_alias_list;
+  modvar_alias_list = new_alias_info;
+}
+
+/**
+   \brief Release the memory space ocupied by the linked list of alias_symifo nodes.
+ */
+static void
+free_modvar_alias_list()
+{
+  alias_syminfo *node;
+  while (modvar_alias_list) {
+    node = modvar_alias_list;
+    modvar_alias_list = modvar_alias_list->next;
+    FREE(node->alias);
+    FREE(node);
+  }
 }
 

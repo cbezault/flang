@@ -1,5 +1,5 @@
 #
-# Copyright (c) 1994-2018, NVIDIA CORPORATION.  All rights reserved.
+# Copyright (c) 1994-2019, NVIDIA CORPORATION.  All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -21,6 +21,7 @@ END   TK_EOL
 <letter>   TK_LETTER
 <integer>  TK_ICON
 <int kind const>  TK_K_ICON
+<half>     TK_HFCON
 <real>     TK_RCON
 <double>   TK_DCON
 <fmtstr>   TK_FMTSTR
@@ -220,6 +221,7 @@ EOR     TK_EOR
 ERR     TK_ERR
 ERRMSG  TK_ERRMSG
 EQUIVALENCE  TK_EQUIV
+ERRORSTOP   TK_ERRORSTOP
 EXIST   TK_EXIST
 EXIT    TK_EXIT
 EXTENDS TK_EXTENDS
@@ -372,6 +374,7 @@ WRITE   TK_WRITE
 <fformat>  TK_FFORMAT
 <eformat>  TK_EFORMAT
 <gformat>  TK_GFORMAT
+<g0format>  TK_G0FORMAT
 <dformat>  TK_DFORMAT
 <oformat>  TK_OFORMAT
 <nformat>  TK_NFORMAT
@@ -554,6 +557,7 @@ PNOT		      TK_PNOT
 PRESENT		    TK_PRESENT
 PRIORITY	    TK_PRIORITY
 PROC_BIND	    TK_PROC_BIND
+QUIET         TK_QUIET
 SAFELEN       TK_SAFELEN
 SCHEDULE	    TK_SCHEDULE
 SELF		      TK_SELF
@@ -581,3 +585,4 @@ DEVICE_TYPE		TK_DEVICE_TYPE
 DEVICE_NUM              TK_DEVICE_NUM
 DEFAULT_ASYNC		TK_DEFAULT_ASYNC
 LAUNCHBOUNDS		TK_LAUNCH_BOUNDS
+MP_MAP      TK_MP_MAP

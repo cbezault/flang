@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1993-2018, NVIDIA CORPORATION.  All rights reserved.
+ * Copyright (c) 1993-2019, NVIDIA CORPORATION.  All rights reserved.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -43,7 +43,13 @@
 #include "exp_rte.h"
 #include "dtypeutl.h"
 #include "symfun.h"
-
+#if defined(OMP_OFFLOAD_LLVM) || defined(OMP_OFFLOAD_PGI)
+#include "ompaccel.h"
+#endif
+#ifdef OMP_OFFLOAD_LLVM
+#include "tgtutil.h"
+#include "kmpcutil.h"
+#endif
 extern int in_extract_inline; /* Bottom-up auto-inlining */
 
 static int efunc(const char *);
@@ -267,7 +273,7 @@ expand(void)
       EXP_MORE(expb.ilmb, ILM_AUX, expb.nilms + 100);
     }
 
-    /* scan through all the ilms in the current ILM block */
+      /* scan through all the ilms in the current ILM block */
 
     for (ilmx = 0; ilmx < expb.nilms; ilmx += len) {
       int saved_curbih = expb.curbih;
@@ -469,6 +475,20 @@ eval_ilm(int ilmx)
 
   if (!ll_ilm_is_rewriting())
   {
+#ifdef OMP_OFFLOAD_LLVM
+    if (flg.omptarget && gbl.ompaccel_intarget) {
+      if (opcx == IM_MP_BREDUCTION) {
+        ompaccel_notify_reduction(true);
+        exp_ompaccel_reduction(ilmpx, ilmx);
+      } else if (opcx == IM_MP_EREDUCTION) {
+        ompaccel_notify_reduction(false);
+        return;
+      }
+
+      if (ompaccel_is_reduction_region())
+        return;
+    }
+#endif
     /*-
      * evaluate unevaluated "fixed" arguments:
      * For each operand which is a link to another ilm, recurse (evaluate it)
@@ -601,6 +621,33 @@ eval_ilm(int ilmx)
     interr("eval_ilm: bad op type", IM_TYPE(opcx), ERR_Severe);
     break;
   } /* end of switch on ILM opc  */
+
+#ifdef OMP_OFFLOAD_LLVM
+
+  if (flg.omptarget && opcx == IM_ENLAB) {
+    /* Enables creation of libomptarget related structs in the main function,
+     * but it is not recommended option. Default behaviour is to initialize and
+     * create them in the global constructor. */
+    if (XBIT(232, 0x10)) {
+      if (!ompaccel_is_tgt_registered() && !OMPACCRTG(gbl.currsub) &&
+          !gbl.outlined) {
+        ilix = ll_make_tgt_register_lib2();
+        iltb.callfg = 1;
+        chk_block(ilix);
+        ompaccel_register_tgt();
+      }
+    }
+    /* We do not initialize spmd kernel library since we do not use spmd data
+     * sharing model. It does extra work and allocates device on-chip memory.
+     * */
+    if (XBIT(232, 0x40) && gbl.ompaccel_intarget) {
+      ilix = ompaccel_nvvm_get(threadIdX);
+      ilix = ll_make_kmpc_spmd_kernel_init(ilix);
+      iltb.callfg = 1;
+      chk_block(ilix);
+    }
+  }
+#endif
   if (IM_I8(opcx))
     ILM_RESTYPE(ilmx) = ILM_ISI8;
 }
@@ -1330,7 +1377,7 @@ exp_load(ILM_OP opc, ILM *ilmp, int curilm)
 }
 
 /***************************************************************/
-/***************************************************************/
+  /***************************************************************/
 
 /*****  try to use ASSN for all user variables, all compilers *****/
 void
@@ -1939,7 +1986,7 @@ exp_mac(ILM_OP opc, ILM *ilmp, int curilm)
   while (ilicnt-- > 0) {
     ilmtpl = (ILMMAC *)&ilmtp[pattern];
 
-    newili.opc = (ILI_OP) ilmtpl->opc; /* get ili opcode */ // ???
+    newili.opc = (ILI_OP)ilmtpl->opc; /* get ili opcode */ // ???
 
     /* Loop for each operand in this ili template */
     for (i = 0, noprs = ilis[newili.opc].oprs; noprs > 0; ++i, --noprs) {
@@ -2272,7 +2319,7 @@ efunc(const char *nm)
   return func;
 }
 
-/***************************************************************/
+  /***************************************************************/
 
 #define EXP_ISFUNC(s) (STYPEG(s) == ST_PROC)
 #define EXP_ISINDIR(s) (SCG(s) == SC_DUMMY)
@@ -2432,24 +2479,15 @@ create_ref(SPTR sym, int *pnmex, int basenm, int baseilix, int *pclen,
         ADDRCAND(ilix, ILI_OPND(ilix, 2));
       } else {
         if (dtype == DT_DEFERCHAR || dtype == DT_DEFERNCHAR) {
-          /* nondummy adjustable length character */
-          assert(SCG(sym) == SC_BASED, "create_ref:IM_BASE op#2 not based sym",
-                 sym, ERR_Severe);
           if (SDSCG(sym)) {
             clen = exp_get_sdsc_len(sym, 0, 0);
           } else {
             clen = charlen(sym);
-#if DEBUG
-            assert(SDSCG(sym) != 0, "create_ref:Missing descriptor", sym,
-                   ERR_Severe);
-#endif
           }
           mxlen = 0;
           ADDRCAND(clen, ILI_OPND(clen, 2));
         } else if (dtype == DT_ASSCHAR || dtype == DT_ASSNCHAR) {
           /* nondummy adjustable length character */
-          assert(SCG(sym) == SC_BASED, "create_ref:IM_BASE op#2 not based sym",
-                 sym, ERR_Severe);
           if (CLENG(sym)) {
             clen = charlen(sym);
             mxlen = 0;
@@ -2967,5 +3005,5 @@ jsr2qjsr(int dfili)
   return New;
 }
 
-/***************************************************************/
+  /***************************************************************/
 

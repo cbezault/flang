@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1995-2018, NVIDIA CORPORATION.  All rights reserved.
+ * Copyright (c) 1995-2019, NVIDIA CORPORATION.  All rights reserved.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -62,6 +62,7 @@ typedef enum {
   __INT2 = 24,       /**< Fortran integer*2 */
   __INT4 = 25,       /**< Fortran integer*4, integer */
   __INT8 = 26,       /**< Fortran integer*8 */
+  __REAL2 = 45,      /**< Fortran real*2, half */
   __REAL4 = 27,      /**< Fortran real*4, real */
   __REAL8 = 28,      /**< Fortran real*8, double precision */
   __REAL16 = 29,     /**< Fortran real*16 */
@@ -91,7 +92,7 @@ typedef enum {
  * runtime descriptor types cannot change.  Therefore, new values will
  * be added after any current values.
  */
-#define __NTYPES 45
+#define __NTYPES 46
 
 } _DIST_TYPE;
 
@@ -151,6 +152,8 @@ typedef unsigned int __INT4_UT;
 
 typedef long __INT8_T; /* 26 __INT8       integer*8 */
 typedef unsigned long __INT8_UT;
+
+typedef unsigned short __REAL2_T; /* 45 __REAL2      real*2 */
 
 typedef float __REAL4_T; /* 27 __REAL4      real*4 */
 
@@ -303,8 +306,7 @@ typedef __INT_T dtype;
 
 /*
  * data type representing the number of elements passed to
- * ENTF90(ALLOC04, alloc04), etc.  * It's either a 64-bit type, or __INT_T
- * which can be either a 64-bit or 32-bit type depending on DESC_I8
+ * ENTF90(ALLOC04, alloc04), etc.
  */
 
 #define __NELEM_T __INT8_T

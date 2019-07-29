@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1994-2018, NVIDIA CORPORATION.  All rights reserved.
+ * Copyright (c) 1994-2019, NVIDIA CORPORATION.  All rights reserved.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -169,11 +169,12 @@ typedef struct {
     int    lineno;
     int    findex;
     int    fg;		/* defined & referenced only by comm_post() */
+    SPTR   blksym;      /* do concurrent body block sym */
 #ifdef PGF90
     int    tag;		/* used for PFO */
     int    pta;		/* pointer target information */
     int    ptasgn;	/* pointer target pseudo-assignments */
-    int    astd;	/* std of allocate/deallocate set for temp array */
+    int    astd;	/* std of paired set (e.g. allocate/deallocate) */
     int    visit;	/* mark std after it is hoisted */
 #endif
     union {
@@ -183,24 +184,23 @@ typedef struct {
 	    unsigned  st:1;
 	    unsigned  br:1;
 	    unsigned  delete:1;
-	    unsigned  ignore:1;	/* used by hl vectorizer */
-	    unsigned  split:1;	/* split the loop here */
-	    unsigned  minfo:1;	/* 'minfo' has been generate for the stmt */
-	    unsigned  local:1;	/* if set, stmt will not cause communication */
-	    unsigned  pure:1;	/* if set, stmt contains a reference to a PURE
-				 * subprogram.
-				 */
-	    unsigned  par:1;	/* stmt belongs to a parallel region */
-	    unsigned  cs:1;	/* stmt belongs to a critical section */
-	    unsigned  parsect:1;/* stmt belongs to a parallel section */
-	    unsigned  orig:1;	/* stmt was original user statement */
+	    unsigned  ignore:1;	 /* used by hl vectorizer */
+	    unsigned  split:1;	 /* split the loop here */
+	    unsigned  minfo:1;	 /* stmt has 'minfo' */
+	    unsigned  local:1;	 /* stmt will not cause communication */
+	    unsigned  pure:1;	 /* stmt references a PURE subprogram */
+	    unsigned  par:1;	 /* stmt belongs to a parallel region */
+	    unsigned  cs:1;	 /* stmt belongs to a critical section */
+	    unsigned  parsect:1; /* stmt belongs to a parallel section */
+	    unsigned  orig:1;	 /* stmt was original user statement */
 	    unsigned  mark:1;
-	    unsigned  task:1;   /* stmt belongs to a task */
+	    unsigned  task:1;    /* stmt belongs to a task */
 	    unsigned  accel:1;   /* stmt belongs to an accelerator region */
 	    unsigned  kernel:1;  /* stmt belongs to an cuda kernel */
 	    unsigned  atomic:1;  /* stmt belongs to an atomic */
-
 	    unsigned  ztrip:1;   /* stmt marked for array assignment */
+	    unsigned  rescope:1; /* stmt marked for kernels rescope */
+	    unsigned  indivisible:1; /* stmt is in indivisible structure(s) */
 	}  bits;
     }  flags;
 } STD;
@@ -211,9 +211,10 @@ typedef struct {
 #define STD_LABEL(i)   astb.std.stg_base[i].label
 #define STD_LINENO(i)  astb.std.stg_base[i].lineno
 #define STD_FINDEX(i)  astb.std.stg_base[i].findex
+#define STD_FG(i)      astb.std.stg_base[i].fg
+#define STD_BLKSYM(i)  astb.std.stg_base[i].blksym
 #define STD_FIRST      astb.std.stg_base[0].next
 #define STD_LAST       astb.std.stg_base[0].prev
-#define STD_FG(i)      astb.std.stg_base[i].fg
 #ifdef PGF90
 #define STD_TAG(i)     astb.std.stg_base[i].tag
 #define STD_PTA(i)     astb.std.stg_base[i].pta
@@ -240,8 +241,10 @@ typedef struct {
 #define STD_TASK(i)    astb.std.stg_base[i].flags.bits.task
 #define STD_ACCEL(i)   astb.std.stg_base[i].flags.bits.accel
 #define STD_KERNEL(i)  astb.std.stg_base[i].flags.bits.kernel
-#define STD_ZTRIP(i)   astb.std.stg_base[i].flags.bits.ztrip
 #define STD_ATOMIC(i)  astb.std.stg_base[i].flags.bits.atomic
+#define STD_ZTRIP(i)   astb.std.stg_base[i].flags.bits.ztrip
+#define STD_RESCOPE(i)   astb.std.stg_base[i].flags.bits.rescope
+#define STD_INDIVISIBLE(i)   astb.std.stg_base[i].flags.bits.indivisible
 
 
 /*=================================================================*/
@@ -317,7 +320,7 @@ typedef struct {
      * the following members are initialized to values which reflect the
      * default type for the extents and subscripts of arrays.  The type could
      * either be 32-int or 64-bit (BIGOBJects & -Mlarge_arrays).
-     * 
+     *
      */
     struct {
         int     zero;	/* 'predefined' ast for ISZ_T 0 */
@@ -410,6 +413,8 @@ int add_stmt_before (int, int);
 void insert_stmt_after(int std, int stdafter);
 void insert_stmt_before(int std, int stdbefore);
 void remove_stmt(int std);
+void move_stmt_before(int std, int stdbefore);
+void move_stmt_after(int std, int stdafter);
 void move_stmts_before(int std, int stdbefore);
 void move_stmts_after(int std, int stdafter);
 void ast_to_comment (int);
@@ -487,6 +492,7 @@ int get_ast_asd(int ast);
 DTYPE get_ast_dtype(int ast);
 int get_ast_rank(int ast);
 int rewrite_ast_with_new_dtype(int ast, DTYPE dtype);
+int mk_duplicate_ast(int ast);
 int get_ast_extents(int extent_asts[], int from_ast, DTYPE arr_dtype);
 int get_ast_bounds(int lower_bound_asts[], int upper_bound_asts[],
                    int from_ast, DTYPE arr_dtype);

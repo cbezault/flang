@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1994-2018, NVIDIA CORPORATION.  All rights reserved.
+ * Copyright (c) 1994-2019, NVIDIA CORPORATION.  All rights reserved.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -222,8 +222,21 @@ sym_in_scope(int first, OVCLASS overloadclass, int *paliassym, int *plevel,
              (IS_TBP(sptr) && PRIVATEG(sptr)))) {
           found = TRUE; /* in a private USE */
         } else if (scope->kind == SCOPE_USE &&
-                   (PRIVATEG(sptr) || PRIVATEG(sptrloop))) {
-          found = TRUE; /* private module variable */
+                   (PRIVATEG(sptr) || 
+                    PRIVATEG(sptrloop))) {
+          /* FE creates an alias when processing the case like:
+                'use mod_name, only : i'. 
+             So, if found sptrloop is a type of ST_ALIAS, we need to check whether
+             current module is a submod of ENCLFUNCG(sptrloop). If yes, then this
+             variable is accessible. 
+           */
+          if (STYPEG(sptrloop) == ST_ALIAS && ANCESTORG(gbl.currmod))
+            found = ENCLFUNCG(sptrloop) != ANCESTORG(gbl.currmod);
+          else
+            found = TRUE; /* private module variable */
+          /* private module variables are visible to inherited submodules*/
+          if (is_used_by_submod(gbl.currsub, sptr))
+            return sptr;
         }
         if (!found) { /* not found in 'except' list */
           if (STYPEG(sptr) == ST_ALIAS)
@@ -542,17 +555,24 @@ set_internref_flag(int sptr)
 {
   INTERNREFP(sptr, 1);
   if (DTY(DTYPEG(sptr)) == TY_ARRAY || POINTERG(sptr) || ALLOCATTRG(sptr) ||
-      IS_PROC_DUMMYG(sptr)) {
+      IS_PROC_DUMMYG(sptr) || ADJLENG(sptr)) {
     int descr, sdsc, midnum;
+    int cvlen = 0;
     descr = DESCRG(sptr);
     sdsc = SDSCG(sptr);
     midnum = MIDNUMG(sptr);
+    // adjustable char arrays can exist as single vars or array of arrays
+    if (STYPEG(sptr) == ST_VAR || STYPEG(sptr) == ST_ARRAY ||
+        STYPEG(sptr) == ST_IDENT)
+      cvlen = CVLENG(sptr);
     if (descr)
       INTERNREFP(descr, 1);
     if (sdsc)
       INTERNREFP(sdsc, 1);
     if (midnum)
       INTERNREFP(midnum, 1);
+    if (cvlen)
+      INTERNREFP(cvlen, 1);
   }
   if (DTY(DTYPEG(sptr)) == TY_ARRAY) {
     ADSC *ad;
@@ -622,7 +642,9 @@ declsym(int first, SYMTYPE stype, LOGICAL errflg)
     if (st == ST_UNKNOWN && sptr == first && gbl.internal &&
         sptr < stb.firstusym)
       goto return0; /* New symbol at this scope. */
-    if (st == ST_UNKNOWN && sptr == first && sptr >= stb.firstusym)
+    if ((st == ST_UNKNOWN || 
+         (st == ST_MODPROC && !SEPARATEMPG(sptr) && sem.interface)) && 
+        sptr == first && sptr >= stb.firstusym)
       goto return1; /* Brand new symbol, return it. */
     if ((int)SCOPEG(sptr) == stb.curr_scope && st == ST_IDENT &&
         stb.ovclass[st] == stb.ovclass[stype]) {
@@ -1592,6 +1614,8 @@ decl_private_sym(int sptr)
       if (cvlen == 0) {
         cvlen = sym_get_scalar(SYMNAME(sptr), "len", DT_INT);
         CVLENP(sptr, cvlen);
+        if (SCG(sptr) == SC_DUMMY)
+          CCSYMP(cvlen, 1);
       }
       CVLENP(new, cvlen);
       ADJLENP(new, 1);
@@ -1796,6 +1820,8 @@ add_private_allocatable(int old, int new)
     if (cvlen == 0) {
       cvlen = sym_get_scalar(SYMNAME(old), "len", DT_INT);
       CVLENP(old, cvlen);
+      if (SCG(old) == SC_DUMMY)
+        CCSYMP(cvlen, 1);
     }
     CVLENP(new, cvlen);
     ADJLENP(new, 1);
@@ -1820,6 +1846,8 @@ add_private_allocatable(int old, int new)
     SCP(cvlen, SCG(MIDNUMG(new)));
     ENCLFUNCP(cvlen, ENCLFUNCG(new));
     SCOPEP(cvlen, sem.scope_stack[sem.scope_level].sptr);
+    if (SCG(new) == SC_DUMMY)
+      CCSYMP(cvlen, 1);
     if (flg.smp) {
       if (SCG(old) == SC_BASED)
         ref_based_object(old);

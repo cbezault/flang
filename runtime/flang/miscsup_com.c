@@ -816,7 +816,11 @@ ENTFTN(SYSCLK, sysclk)(__STAT_T *count, __STAT_T *count_rate,
 
   if (resol == 0) {
     int def;
+#if defined(TARGET_X8664)
     def = 1000000;
+#else
+    def = sizeof(__STAT_T) < 8 ? 1000 : 1000000;
+#endif
     resol = __fort_getoptn("-system_clock_rate", def);
     if (resol <= 0)
       __fort_abort("invalid value given for system_clock rate");
@@ -2880,6 +2884,7 @@ ENTF90(TRIMA, trima)
   i = CLEN(expr);
   while (i > 0) {
     if (CADR(expr)[i - 1] != ' ') {
+#if defined(TARGET_X8664)
       if (i <= 11) {
         int *rptr = ((int *)CADR(res));
         int *eptr = ((int *)CADR(expr));
@@ -2899,6 +2904,11 @@ ENTF90(TRIMA, trima)
         }
         rcptr = (char *)rptr;
         ecptr = (char *)eptr;
+#else
+      if (i <= 3) {
+        rcptr = ((char *)CADR(res));
+        ecptr = ((char *)CADR(expr));
+#endif
         j = i & 3;
         if (j > 2)
           *rcptr++ = *ecptr++;

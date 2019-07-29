@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1994-2018, NVIDIA CORPORATION.  All rights reserved.
+ * Copyright (c) 1994-2019, NVIDIA CORPORATION.  All rights reserved.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -573,13 +573,21 @@ size_ast(int sptr, DTYPE dtype)
     if (dtype == DT_ASSCHAR || dtype == DT_DEFERCHAR
         || dtype == DT_ASSNCHAR || dtype == DT_DEFERNCHAR
         ) {
-      clen = ast_intr(I_LEN, astb.bnd.dtype, 1, mk_id(sptr));
+      if (dtype == DT_ASSCHAR || dtype == DT_DEFERCHAR
+       || dtype == DT_ASSNCHAR || dtype == DT_DEFERNCHAR
+      ) {
+        clen = ast_intr(I_LEN, astb.bnd.dtype, 1, mk_id(sptr));
+      } else {
+        clen = DTY(dtype+1);
+      }
     } else if (ADJLENG(sptr) && !F90POINTERG(sptr)) {
       /* don't add CVLEN for local automatic character */
       clen = CVLENG(sptr);
       if (clen == 0) {
         clen = sym_get_scalar(SYMNAME(sptr), "len", astb.bnd.dtype);
         CVLENP(sptr, clen);
+        if (SCG(sptr) == SC_DUMMY)
+          CCSYMP(clen, 1);
       }
       clen = mk_id(clen);
     } else {
@@ -723,6 +731,8 @@ size_ast_of(int ast, DTYPE dtype)
       if (clen == 0) {
         clen = sym_get_scalar(SYMNAME(sptr), "len", astb.bnd.dtype);
         CVLENP(sptr, clen);
+        if (SCG(sptr) == SC_DUMMY)
+          CCSYMP(clen, 1);
       }
       clen = mk_id(clen);
     } else {
@@ -975,6 +985,8 @@ fix_dtype(int sptr, DTYPE dtype)
       if (clen == 0) {
         clen = sym_get_scalar(SYMNAME(sptr), "len", DT_INT);
         CVLENP(sptr, clen);
+        if (SCG(sptr) == SC_DUMMY)
+          CCSYMP(clen, 1);
       }
       cvlen = CVLENG(sptr);
       clen = mk_id(clen);
@@ -1187,6 +1199,7 @@ int
 alignment(DTYPE dtype)
 {
   TY_KIND ty = get_ty_kind(dtype);
+  int align_val;
 
   switch (ty) {
   case TY_DWORD:
@@ -1217,7 +1230,8 @@ alignment(DTYPE dtype)
     return dtypeinfo[ty].align;
 
   case TY_ARRAY:
-    return alignment((int)DTY(dtype + 1));
+    align_val = alignment((int)DTY(dtype + 1));
+    return align_val;
 
   case TY_STRUCT:
   case TY_UNION:
@@ -2387,6 +2401,86 @@ getast(int ast, char *string)
   } /* switch */
 } /* getast */
 
+/** \brief Check if ast is deferred-length character  */
+bool
+is_deferlenchar_ast(int ast)
+{
+  DTYPE dt;
+  SPTR sym = 0;
+
+  dt = DDTG(A_DTYPEG(ast));
+  if (DTY(dt) != TY_CHAR && DTY(dt) != TY_NCHAR) {
+    return false;
+  }
+
+  if (dt ==  DT_ASSCHAR || dt ==  DT_ASSNCHAR) {
+    return false;
+  } else if (dt == DT_DEFERCHAR || dt == DT_DEFERNCHAR) {
+    return true;
+  }
+
+  if (ast_is_sym(ast)) {
+    sym = memsym_of_ast(ast);
+  }
+
+  /* adjustable length character */
+  if ((sym > NOSYM) && ADJLENG(sym)) {
+    return false;
+  }
+
+  if (DTY(A_DTYPEG(ast)) == TY_ARRAY) {
+    if (ADD_DEFER(A_DTYPEG(ast))) {
+      dt = DTY(DDTG(A_DTYPEG(ast)) + 1);
+      if (A_TYPEG(dt) != A_CNST) {
+        return true;
+      }
+    }
+  }
+  return false;
+}
+
+/** \brief Check if dtype is deferred-length character */
+bool
+is_deferlenchar_dtype(DTYPE dtype)
+{
+  DTYPE dt;
+
+  dt = DDTG(dtype);
+  if (DTY(dt) != TY_CHAR && DTY(dt) != TY_NCHAR) {
+    return false;
+  }
+
+  if (dt == DT_DEFERCHAR || dt == DT_DEFERNCHAR) {
+    return true;
+  }
+  dt = DTY(dt+1);
+  if (DTY(dtype) == TY_ARRAY) {
+    if (!ADD_DEFER(dtype)) {
+      return false;
+    }
+  }
+
+  if (A_TYPEG(dt) == A_ID) {
+    /* i.e. character(len=newlen) */
+    if (ASSNG(A_SPTRG(dt))) {
+      return true;
+    }
+  } else if (A_TYPEG(dt) == A_SUBSCR) {
+    /* i.e. character(len=newlen(1)) */
+    if (ASSNG(memsym_of_ast(dt))) {
+      return true;
+    }
+  }
+
+  /* i.e. character(len=len(a)) */
+  if ((A_TYPEG(dt) == A_FUNC || A_TYPEG(dt) == A_INTR)
+    && is_deferlenchar_ast(ARGT_ARG(A_ARGSG(dt), 0))) {
+    return true;
+  }
+  return false;
+}
+
+
 /** \brief Put into the character array pointed to by ptr, the print
    representation
     of dtype.
@@ -3308,6 +3402,7 @@ typedef enum {
   __INT2 = 24,    /*   F integer*2 */
   __INT4 = 25,    /*   F integer*4, integer */
   __INT8 = 26,    /*   F integer*8 */
+  __REAL2 = 45,   /*   F real*2, half */
   __REAL4 = 27,   /*   F real*4, real */
   __REAL8 = 28,   /*   F real*8, double precision */
   __REAL16 = 29,  /*   F real*16 */
@@ -3331,9 +3426,10 @@ typedef enum {
   __QREAL16 = 41, /* F real(16) */
   __QCPLX32 = 42, /* F complex(32) */
   __POLY = 43,    /* F polymorphic variable */
+  __PROCPTR = 44, /* F procedure pointer descriptor */
 
   /* number of data types */
-  __NTYPES = 44 /* MUST BE LAST */
+  __NTYPES = 46 /* MUST BE LAST */
 
 } _pghpf_type;
 
@@ -3346,9 +3442,11 @@ int ty_to_lib[] = {
     __INT2,    /* TY_SINT */
     __INT4,    /* TY_INT */
     __INT8,    /* TY_INT8 */
+    __REAL2,   /* TY_HALF */
     __REAL4,   /* TY_REAL */
     __REAL8,   /* TY_DBLE */
     __REAL16,  /* TY_QUAD */
+    __CPLX,    /* TY_HCMPLX */
     __CPLX,    /* TY_CMPLX */
     __DCPLX,   /* TY_DCMPLX */
     __CPLX32,  /* TY_QCMPLX */
@@ -3384,9 +3482,11 @@ static int ty_to_base_ty[] = {
     TY_INT,     /* TY_SINT */
     TY_INT,     /* TY_INT */
     TY_INT,     /* TY_INT8 */
+    TY_REAL,    /* TY_HALF */
     TY_REAL,    /* TY_REAL */
     TY_REAL,    /* TY_DBLE */
     TY_REAL,    /* TY_QUAD */
+    TY_CMPLX,   /* TY_HCMPLX */
     TY_CMPLX,   /* TY_CMPLX */
     TY_CMPLX,   /* TY_DCMPLX */
     TY_CMPLX,   /* TY_QCMPLX */
@@ -3413,7 +3513,7 @@ static int ty_to_base_ty[] = {
     TY_CMPLX,   /* TY_CMPLX128 */
 };
 
-#if TY_MAX != 34
+#if TY_MAX != 36
 #error \
     "Need to edit dtypeutl.c to add new TY_... data types to ty_to_lib and ty_to_base_ty"
 #endif
@@ -3665,17 +3765,19 @@ get_len_set_parm(int sptr, DTYPE dtype, int *val)
 void
 chkstruct(DTYPE dtype)
 {
+  int m, m_prev = NOSYM, m_next = NOSYM;
+  ISZ_T symlk;
+
   if (DTY(dtype) == TY_STRUCT || DTY(dtype) == TY_DERIVED) {
     int offset = 0;  /* byte offset from beginning of struct */
     int maxa = 0;    /* maximum alignment req'd by any member */
     int distmem = 0; /* any distributed members? */
     int ptrmem = 0;  /* any pointer members? */
-    int m;
-    ISZ_T symlk;
 
-    for (m = DTY(dtype + 1); m != NOSYM; m = symlk) {
+    for (m = DTY(dtype + 1); m != NOSYM; m_prev = m, m = symlk) {
       int oldoffset, a;
       symlk = SYMLKG(m);
+      m_next = symlk;
       if (DTYPEG(m) == DT_NONE) {
         continue; /* Occurs w/ empty typedef */
       }
@@ -3737,10 +3839,11 @@ chkstruct(DTYPE dtype)
      */
     int maxa = 0;
     ISZ_T size = 1;
-    int m;
     assert(DTY(dtype) == TY_UNION && DTY(dtype + 1), "chkstruct:bad dt", dtype,
            3);
-    for (m = DTY(dtype + 1); m != NOSYM; m = SYMLKG(m)) {
+    for (m = DTY(dtype + 1); m != NOSYM; m_prev = m, m = symlk) {
+      symlk = SYMLKG(m);
+      m_next = symlk;
       ISZ_T s = size_of_var(m);
       int a = alignment_of_var(m);
       if (s > size)

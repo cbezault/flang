@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1998-2018, NVIDIA CORPORATION.  All rights reserved.
+ * Copyright (c) 1998-2019, NVIDIA CORPORATION.  All rights reserved.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -42,7 +42,7 @@
 /* contents of this file:  */
 
 static void add_clause(int, LOGICAL);
-static void clause_errchk(BIGINT64, char *);
+static bool clause_errchk(BIGINT64, char *);
 static void accel_sched_errchk();
 static void accel_nosched_errchk();
 static void accel_pragmagen(int, int, int);
@@ -113,6 +113,21 @@ static LOGICAL is_valid_atomic_capture(int, int);
 static LOGICAL is_valid_atomic_update(int, int);
 static int mk_atomic_update_binop(int, int);
 static int mk_atomic_update_intr(int, int);
+static void do_map();
+static LOGICAL use_atomic_for_reduction(int);
+
+#if defined(OMP_OFFLOAD_LLVM) || defined(OMP_OFFLOAD_PGI)
+static char *map_type;
+bool isalways = false;
+static int get_omp_combined_mode(BIGINT64 type);
+static void mp_handle_map_clause(SST *, int, char *, int, int, bool);
+static void mp_check_maptype(const char *maptype);
+static LOGICAL is_in_omptarget(int d);
+#endif
+#ifdef OMP_OFFLOAD_LLVM
+static void gen_reduction_ompaccel(REDUC *reducp, REDUC_SYM *reduc_symp,
+                                   LOGICAL rmme, LOGICAL in_parallel);
+#endif
 
 /*-------- define data structures and macros local to this file: --------*/
 
@@ -418,7 +433,7 @@ static struct cl_tag { /* clause table */
      BT_ACCKERNELS | BT_ACCPARALLEL | BT_ACCSERIAL},
     {0, 0, NULL, NULL, "USE_DEVICE", BT_ACCHOSTDATA},
     {0, 0, NULL, NULL, "DEVICEPTR",
-     BT_ACCREG | BT_ACCKERNELS | BT_ACCPARALLEL | BT_ACCDATAREG | BT_ACCSERIAL},
+     BT_ACCREG | BT_ACCKERNELS | BT_ACCPARALLEL | BT_ACCDATAREG | BT_ACCSERIAL | BT_ACCDECL},
     {0, 0, NULL, NULL, "DEVICE_RESIDENT", BT_ACCDECL},
     {0, 0, NULL, NULL, "FINAL", BT_TASK | BT_TASKLOOP},
     {0, 0, NULL, NULL, "MERGEABLE", BT_TASK | BT_TASKLOOP},
@@ -536,12 +551,13 @@ static int mp_iftype;
 static ISZ_T kernel_do_nest;
 static LOGICAL has_team = FALSE;
 
+
 static LOGICAL any_pflsr_private = FALSE;
 
 static void add_pragmasyms(int pragmatype, int pragmascope, ITEM *itemp, int);
 static void add_pragma(int pragmatype, int pragmascope, int pragmaarg);
 
-#define OPT_OMP_ATOMIC !XBIT(69, 0x1000)
+#define OPT_OMP_ATOMIC !XBIT(69,0x1000)
 
 static int kernel_argnum;
 
@@ -1335,7 +1351,7 @@ semsmp(int rednum, SST *top)
   case MP_STMT33:
     if (sem.mpaccatomic.action_type == ATOMIC_CAPTURE) {
       int ecs;
-      if (OPT_OMP_ATOMIC) {
+      if (use_opt_atomic(sem.doif_depth)) {
         ecs = mk_stmt(A_MP_ENDATOMIC, 0);
         std = add_stmt(ecs);
       } else {
@@ -1543,6 +1559,7 @@ semsmp(int rednum, SST *top)
     add_stmt(ast);
   }
     SST_ASTP(LHS, 0);
+    do_map();
     break;
   /*
    *	<mp stmt> ::= <mp endtargetdata> |
@@ -1582,9 +1599,10 @@ semsmp(int rednum, SST *top)
     if (CL_PRESENT(CL_NOWAIT)) {
     }
     add_stmt(ast);
-    (void)leave_dir(DI_TARGET, TRUE, 0);
+    (void)leave_dir(DI_TARGETENTERDATA, TRUE, 0);
   }
     SST_ASTP(LHS, 0);
+    do_map();
     break;
   /*
    *	<mp stmt> ::= <targetexitdata begin> <opt par list>  |
@@ -1607,9 +1625,10 @@ semsmp(int rednum, SST *top)
     if (CL_PRESENT(CL_NOWAIT)) {
     }
     add_stmt(ast);
-    (void)leave_dir(DI_TARGET, TRUE, 0);
+    (void)leave_dir(DI_TARGETEXITDATA, TRUE, 0);
   }
     SST_ASTP(LHS, 0);
+    do_map();
     break;
   /*
    *	<mp stmt> ::= <targetupdate begin> <opt par list> |
@@ -1643,6 +1662,11 @@ semsmp(int rednum, SST *top)
     clause_errchk(BT_TARGET, "OMP TARGET");
     mp_create_bscope(0);
     DI_BTARGET(sem.doif_depth) = emit_btarget(A_MP_TARGET);
+#if defined(OMP_OFFLOAD_LLVM) || defined(OMP_OFFLOAD_PGI)
+    if(flg.omptarget)
+      A_COMBINEDTYPEP(DI_BTARGET(sem.doif_depth),
+                    get_omp_combined_mode(BT_TARGET));
+#endif
     par_push_scope(TRUE);
     begin_parallel_clause(sem.doif_depth);
     SST_ASTP(LHS, 0);
@@ -2428,15 +2452,14 @@ semsmp(int rednum, SST *top)
   case PAR_ATTR25:
     error(547, ERR_Warning, gbl.lineno, "DEVICE", CNULL);
     break;
-  /*
-   *	<par attr> ::= <map clause> |
-   */
+    /*
+     *	<par attr> ::= <map clause> |
+     */
   case PAR_ATTR26:
-    error(547, ERR_Warning, gbl.lineno, "MAP", CNULL);
     break;
-  /*
-   *	<par attr> ::= <depend clause> |
-   */
+    /*
+     *	<par attr> ::= <depend clause> |
+     */
   case PAR_ATTR27:
     error(547, ERR_Warning, gbl.lineno, "DEPEND", CNULL);
     break;
@@ -2456,7 +2479,6 @@ semsmp(int rednum, SST *top)
    *	<par attr> ::= <motion clause> |
    */
   case PAR_ATTR30:
-    error(547, ERR_Warning, gbl.lineno, "MOTION", CNULL);
     break;
   /*
    *	<par attr> ::= DIST_SCHEDULE ( <id name> <opt distchunk> ) |
@@ -3079,47 +3101,65 @@ semsmp(int rednum, SST *top)
     error(547, ERR_Warning, gbl.lineno, "UNIFORM", CNULL);
     break;
 
-  /* ------------------------------------------------------------------ */
-  /*
-   *	<map clause> ::= MAP ( <map item> )
-   */
+    /* ------------------------------------------------------------------ */
+    /*
+     *	<map clause> ::= MAP ( <map item> )
+     */
   case MAP_CLAUSE1:
-    error(547, ERR_Warning, gbl.lineno, "MAP", CNULL);
     break;
 
-  /* ------------------------------------------------------------------ */
-  /*
-   *	<map item> ::= <var ref list> |
-   */
+    /* ------------------------------------------------------------------ */
+    /*
+     *	<map item> ::= <accel data list> |
+     */
   case MAP_ITEM1:
-    add_clause(CL_MAP, FALSE);
-    CL_VAL(CL_MAP) = SST_ASTG(RHS(1));
-    CL_FIRST(CL_MAP) = SST_BEGG(RHS(1));
-    CL_LAST(CL_MAP) = SST_ENDG(RHS(1));
-
+#if defined(OMP_OFFLOAD_LLVM) || defined(OMP_OFFLOAD_PGI)
+    if (flg.omptarget) {
+      mp_handle_map_clause(top, CL_MAP, "tofrom", 1, DI_ID(sem.doif_depth),
+                           isalways);
+    }
+#endif
     break;
-  /*
-   *	<map item> ::= <map type> : <var ref list>
-   */
+    /*
+     *	<map item> ::= <map type> : <accel data list>
+     */
   case MAP_ITEM2:
-    add_clause(CL_MAP, FALSE);
-    CL_VAL(CL_MAP) = SST_ASTG(RHS(3));
-    CL_FIRST(CL_MAP) = SST_BEGG(RHS(3));
-    CL_LAST(CL_MAP) = SST_ENDG(RHS(3));
+#if defined(OMP_OFFLOAD_LLVM) || defined(OMP_OFFLOAD_PGI)
+    if (flg.omptarget) {
+      if (strlen(map_type) == 0)
+        error(1205, ERR_Severe, gbl.lineno, scn.id.name + SST_CVALG(RHS(1)), 0);
 
+      nmptr = SYMNAME(SST_SYMG(RHS(1)));
+      mp_handle_map_clause(top, CL_MAP, map_type, 3, DI_ID(sem.doif_depth),
+                           isalways);
+    }
+#endif
     break;
 
-  /* ------------------------------------------------------------------ */
-  /*
-   *	<map type> ::= <id name> |
-   */
+    /* ------------------------------------------------------------------ */
+    /*
+     *	<map type> ::= <id name> |
+     */
   case MAP_TYPE1:
+#if defined(OMP_OFFLOAD_LLVM) || defined(OMP_OFFLOAD_PGI)
+    if (flg.omptarget) {
+      mp_check_maptype(scn.id.name + SST_CVALG(RHS(1)));
+      map_type = scn.id.name + SST_CVALG(RHS(1));
+    }
+#endif
     break;
-  /*
-   *	<map type> ::= ALWAYS <opt comma> <id name>
-   */
+    /*
+     *	<map type> ::= ALWAYS <opt comma> <id name>
+     */
   case MAP_TYPE2:
-    error(547, ERR_Warning, gbl.lineno, "ALWAYS", CNULL);
+#if defined(OMP_OFFLOAD_LLVM) || defined(OMP_OFFLOAD_PGI)
+    if (flg.omptarget) {
+      mp_check_maptype(scn.id.name + SST_CVALG(RHS(1)));
+      map_type = scn.id.name + SST_CVALG(RHS(1));
+      isalways = true;
+      break;
+    }
+#endif
     break;
 
   /* ------------------------------------------------------------------ */
@@ -3148,13 +3188,11 @@ semsmp(int rednum, SST *top)
    *	<motion clause> ::= TO ( <var ref list> ) |
    */
   case MOTION_CLAUSE1:
-    error(547, ERR_Warning, gbl.lineno, "TO", CNULL);
     break;
   /*
    *	<motion clause> ::= FROM ( <var ref list> )
    */
   case MOTION_CLAUSE2:
-    error(547, ERR_Warning, gbl.lineno, "FROM", CNULL);
     break;
 
   /* ------------------------------------------------------------------ */
@@ -3223,7 +3261,7 @@ semsmp(int rednum, SST *top)
     sem.mpaccatomic.ast = 0;
     sem.mpaccatomic.seen = TRUE;
 
-    if (OPT_OMP_ATOMIC) {
+    if (use_opt_atomic(sem.doif_depth)) {
       sem.mpaccatomic.ast = mk_stmt(A_MP_ATOMIC, 0);
       (void)add_stmt(sem.mpaccatomic.ast);
     } else {
@@ -4177,17 +4215,17 @@ semsmp(int rednum, SST *top)
     dirname = "ACC END SERIAL LOOP";
     pr1 = PR_ACCENDSERIAL;
     goto ACCEL_END_REGION;
-    
+
   /*
    * <accel stmt> ::= <accel begin> <accel compare dir> |
    */
   case ACCEL_STMT50:
-      break;
+    break;
   /*
    * <accel stmt> ::= <pgi begin> <pgi compare dir>
    */
   case ACCEL_STMT51:
-    accel_pragmagen(PR_ACCCOMP, 0, 0);
+    accel_pragmagen(PR_PCASTCOMPARE, 0, 0);
     break;
 
   /* ------------------------------------------------------------------ */
@@ -4198,7 +4236,7 @@ semsmp(int rednum, SST *top)
     parstuff_init();
     SST_ASTP(LHS, 0);
     break;
-    
+
   /* ------------------------------------------------------------------ */
   /*
    *      <pgi begin> ::=
@@ -4550,9 +4588,9 @@ semsmp(int rednum, SST *top)
    */
   case ACCEL_ATTR52:
     break;
-  /*
-   *	<accel attr> ::= DELETE ( <accel data list> ) |
-   */
+    /*
+     *	<accel attr> ::= DELETE ( <accel data list> ) |
+     */
   case ACCEL_ATTR53:
     break;
   /*
@@ -4783,6 +4821,19 @@ semsmp(int rednum, SST *top)
    *	<accel data> ::= <accel data name> ( <accel sub list> ) |
    */
   case ACCEL_DATA1:
+#if defined(OMP_OFFLOAD_LLVM) || defined(OMP_OFFLOAD_PGI)
+    if(is_in_omptarget(sem.doif_depth)) {
+      //todo support array section in the map clause for openmp
+      if (SST_IDG(RHS(1)) == S_IDENT || SST_IDG(RHS(1)) == S_DERIVED) {
+        sptr = SST_SYMG(RHS(1));
+      } else {
+        sptr = SST_LSYMG(RHS(1));
+      }
+      error(1206, ERR_Warning, gbl.lineno, sptr ? SYMNAME(sptr) : CNULL, CNULL);
+      goto accel_data2;
+      break;
+    }
+#endif
   accel_data1:
     if (SST_IDG(RHS(1)) == S_IDENT || SST_IDG(RHS(1)) == S_DERIVED) {
       sptr = SST_SYMG(RHS(1));
@@ -4852,7 +4903,8 @@ semsmp(int rednum, SST *top)
     SST_ASTP(LHS, mk_id(sptr));
     break;
   /*
-   *	<accel data> ::= <accel data name> '<' <ident> '>' ( <accel sub list> ) |
+   *	<accel data> ::= <accel data name> '<' <ident> '>' ( <accel sub list> )
+   *|
    */
   case ACCEL_DATA5:
     break;
@@ -5674,7 +5726,7 @@ semsmp(int rednum, SST *top)
    */
   case ACC_SHUTDOWN_ATTR2:
     break;
-    
+
   /*
    * <accel compare dir> ::= COMPARE ( <accel data list> )
    */
@@ -5688,7 +5740,7 @@ semsmp(int rednum, SST *top)
       ((ITEM *)CL_LAST(clause))->next = SST_BEGG(RHS(op));
     CL_LAST(clause) = SST_ENDG(RHS(op));
     break;
-    
+
   /*
    * <pgi compare dir> ::= PGICOMPARE ( <accel data list> )
    */
@@ -5737,14 +5789,19 @@ add_clause(int clause, LOGICAL one_only)
     CL_PRESENT(clause) = 1;
 }
 
-static void
+static bool
 clause_errchk(BIGINT64 bt, char *dirname)
 {
   int i;
+  bool any = false;
 
   for (i = 0; i < CL_MAXV; i++)
-    if (CL_PRESENT(i) && !(CL_STMT(i) & bt))
-      error(533, 3, gbl.lineno, CL_NAME(i), dirname);
+    if (CL_PRESENT(i)) {
+      any = true;
+      if (!(CL_STMT(i) & bt))
+        error(533, 3, gbl.lineno, CL_NAME(i), dirname);
+    }
+  return any;
 }
 
 static void
@@ -5773,7 +5830,8 @@ add_pragma2(int pragmatype, int pragmascope, int pragmaarg, int pragmaarg2)
 }
 
 static void
-add_pragma3(int pragmatype, int pragmascope, int pragmaarg, int pragmaarg2, int pragmaarg3)
+add_pragma3(int pragmatype, int pragmascope, int pragmaarg, int pragmaarg2,
+            int pragmaarg3)
 {
   int ast;
 
@@ -5791,20 +5849,23 @@ add_pragmasyms(int pragmatype, int pragmascope, ITEM *itemp, int docopy)
 {
   int prtype = pragmatype;
   for (; itemp != ITEM_END; itemp = itemp->next) {
-    int sptr;
+    int sptr, ast_devcopy = 0;
     sptr = memsym_of_ast(itemp->ast);
     if (docopy)
       prtype = itemp->t.cltype;
 #ifdef DEVCOPYG
     if (DEVCOPYG(sptr)) {
-        add_pragma2(prtype, pragmascope, itemp->ast, mk_id(DEVCOPYG(sptr)));
-    } else {
-        add_pragma2(prtype, pragmascope, itemp->ast, 0);
-        
+      if ((sem.parallel || sem.task || sem.target || sem.teams)) {
+        int stblk;
+        stblk = BLK_UPLEVEL_SPTR(sem.scope_level);
+        if (!stblk)
+          stblk = get_stblk_uplevel_sptr();
+        mp_add_shared_var(DEVCOPYG(sptr), stblk);
+      }
+      ast_devcopy = mk_id(DEVCOPYG(sptr));
     }
-#else
-      add_pragma(prtype, pragmascope, itemp->ast);
 #endif
+      add_pragma2(prtype, pragmascope, itemp->ast, ast_devcopy);
   }
 }
 
@@ -6515,77 +6576,125 @@ do_private(void)
     }
 }
 
+
 static void
-do_firstprivate(int istask)
+mk_firstprivate(int sptr1, int taskdupstd)
+{
+  int savepar, savetask, saveteams, savetarget, sptr, std;
+  SST tmpsst;
+  if(sptr1 == SPTR_NULL)
+      return;
+  set_parref_flag(sptr1, sptr1, BLK_UPLEVEL_SPTR(sem.scope_level));
+  non_private_check(sptr1, "FIRSTPRIVATE");
+  (void)mk_storage(sptr1, &tmpsst);
+  sptr = decl_private_sym(sptr1);
+  {
+    savepar = sem.parallel;
+    savetask = sem.task;
+    savetarget = sem.target;
+    saveteams = sem.teams;
+    sem.parallel = 0;
+    sem.task = 0;
+    sem.target = 0;
+    sem.teams = 0;
+    /* TODO: Task is done in above?
+     *       should not do for task here?
+     */
+
+    std = 0;
+    if (!POINTERG(sptr)) {
+      if (!XBIT(54, 0x1) && ALLOCATTRG(sptr)) {
+        std = sem.scope_stack[sem.scope_level].end_prologue;
+        if (std == 0) {
+          std = STD_PREV(0);
+        }
+        add_assignment_before(sptr, &tmpsst, std);
+      } else {
+        add_assignment(sptr, &tmpsst);
+      }
+    } else {
+      add_ptr_assignment(sptr, &tmpsst);
+    }
+    sem.task = savetask;
+    sem.teams = saveteams;
+    saveteams = sem.teams;
+    sem.target = savetarget;
+    if (SC_BASED == SCG(sptr)) {
+      add_firstprivate_assn(sptr, sptr1, taskdupstd);
+    } else if (sem.task && TASKG(sptr)) {
+      int ast = mk_stmt(A_MP_TASKFIRSTPRIV, 0);
+      int sptr1_ast = mk_id(sptr1);
+      int sptr_ast = mk_id(sptr);
+      A_LOPP(ast, sptr1_ast);
+      A_ROPP(ast, sptr_ast);
+      add_stmt_after(ast, taskdupstd);
+    }
+    sem.parallel = savepar;
+  }
+}
+
+static void
+do_firstprivate(int istask) 
 {
   ITEM *itemp;
-  int sptr, ast, std, taskdupstd;
-  int sptr1;
+  int ast, taskdupstd, cntfp = 0, maxfp = 50, sptr, i;
   SST tmpsst;
-  int savepar, savetask, savetarget, saveteams;
+  int *fpsptr;
+  LOGICAL isnew;
   taskdupstd = 0;
-
+  NEW(fpsptr, int, maxfp);
+  LLUplevel *uplevel;
+  if (istask && sem.parallel) {
+    uplevel = llmp_has_uplevel(get_stblk_uplevel_sptr());
+    if (uplevel != NULL)
+      uplevel = llmp_has_uplevel(uplevel->parent);
+    if (uplevel != NULL) {
+      if(maxfp < uplevel->vals_count)
+          NEED(maxfp, fpsptr, int, maxfp, uplevel->vals_count);
+      maxfp = uplevel->vals_count;
+      for (i = 0; i < uplevel->vals_count; ++i) {
+        sptr = uplevel->vals[i];
+        if (sptr == SPTR_NULL)
+          continue;
+        if ((SCG(sptr) == SC_PRIVATE) ||
+            (SDSCG(sptr) != 0 && SCG(SDSCG(sptr)) == SC_PRIVATE))
+          fpsptr[cntfp++] = sptr;
+      }
+    }
+  }
   if (CL_PRESENT(CL_FIRSTPRIVATE)) {
+    for (itemp = CL_FIRST(CL_FIRSTPRIVATE); itemp != ITEM_END;
+         itemp = itemp->next) {
+      isnew = TRUE;
+      sptr = itemp->t.sptr;
+      for (i = 0; i < cntfp; ++i)
+        if (fpsptr[i] == sptr) {
+            isnew = FALSE;
+            break;
+        }
+      if (isnew) {
+        if (cntfp > maxfp) {
+            NEED(maxfp, fpsptr, int, maxfp, maxfp + 100);
+            maxfp = maxfp + 100;
+        }
+        fpsptr[cntfp++] = sptr;
+      }
+    }
+  }
+
+  if(cntfp) {
     if (istask) {
       ast = mk_stmt(A_MP_TASKDUP, 0);
       taskdupstd = add_stmt(ast);
     }
-    for (itemp = CL_FIRST(CL_FIRSTPRIVATE); itemp != ITEM_END;
-         itemp = itemp->next) {
-      sptr1 = itemp->t.sptr;
-      set_parref_flag(sptr1, sptr1, BLK_UPLEVEL_SPTR(sem.scope_level));
-      non_private_check(sptr1, "FIRSTPRIVATE");
-      (void)mk_storage(sptr1, &tmpsst);
-      sptr = decl_private_sym(sptr1);
-      {
-        savepar = sem.parallel;
-        savetask = sem.task;
-        savetarget = sem.target;
-        saveteams = sem.teams;
-        sem.parallel = 0;
-        sem.task = 0;
-        sem.target = 0;
-        sem.teams = 0;
-        /* TODO: Task is done in above?
-         *       should not do for task here?
-         */
-
-        std = 0;
-        if (!POINTERG(sptr)) {
-          if (!XBIT(54, 0x1) && ALLOCATTRG(sptr)) {
-            std = sem.scope_stack[sem.scope_level].end_prologue;
-            if (std == 0) {
-              std = STD_PREV(0);
-            }
-            add_assignment_before(sptr, &tmpsst, std);
-          } else {
-            add_assignment(sptr, &tmpsst);
-          }
-        } else {
-          add_ptr_assignment(sptr, &tmpsst);
-        }
-        sem.task = savetask;
-        sem.teams = saveteams;
-        saveteams = sem.teams;
-        sem.target = savetarget;
-        if (SC_BASED == SCG(sptr)) {
-          add_firstprivate_assn(sptr, sptr1, taskdupstd);
-        } else if (sem.task && TASKG(sptr)) {
-          int ast = mk_stmt(A_MP_TASKFIRSTPRIV, 0);
-          int sptr1_ast = mk_id(sptr1);
-          int sptr_ast = mk_id(sptr);
-          A_LOPP(ast, sptr1_ast);
-          A_ROPP(ast, sptr_ast);
-          add_stmt_after(ast, taskdupstd);
-        }
-        sem.parallel = savepar;
-      }
-    }
+    for(i=0;i<cntfp;++i)
+      mk_firstprivate(fpsptr[i], taskdupstd);
     if (istask) {
       ast = mk_stmt(A_MP_ETASKDUP, 0);
       add_stmt(ast);
     }
   }
+  FREE(fpsptr);
 }
 
 static void
@@ -7494,18 +7603,24 @@ do_copyprivate()
 }
 
 static void
-do_map(int clause)
+do_map()
 {
-  /* TODO: map-type-identifier and map-type , just check variable to get correct
-  scope
+  if (!flg.omptarget)
+    return;
 
   ITEM *item;
-  SST *stkptr;
-  if (CL_PRESENT(clause)) {
-    for(item = (ITEM*)CL_FIRST(clause); item != ITEM_END; item = item->next) {
+  int ast;
+  if (CL_PRESENT(CL_MAP)) {
+    for (item = (ITEM *)CL_FIRST(CL_MAP); item != ITEM_END; item = item->next) {
+      ast = mk_stmt(A_MP_MAP, 0);
+      (void)add_stmt(ast);
+      A_LOPP(ast, item->ast);
+      A_PRAGMATYPEP(ast, item->t.cltype);
+      // TODO ompaccel do later lower/upper bounds
     }
   }
-  */
+  ast = mk_stmt(A_MP_EMAP, 0);
+  (void)add_stmt(ast);
 }
 
 static int
@@ -7756,7 +7871,7 @@ begin_parallel_clause(int doif)
 
   switch (DI_ID(doif)) {
   case DI_TARGET:
-    do_map(CL_MAP);
+    do_map();
     break;
   default:
     break;
@@ -7918,7 +8033,7 @@ gen_reduction(REDUC *reducp, REDUC_SYM *reduc_symp, LOGICAL rmme,
       return;
     }
   }
-  if (OPT_OMP_ATOMIC)
+  if (use_atomic_for_reduction(sem.doif_depth))
     add_stmt(mk_stmt(A_MP_ATOMIC, 0));
 
   (void)mk_storage(reduc_symp->shared, &lhs);
@@ -7939,7 +8054,8 @@ gen_reduction(REDUC *reducp, REDUC_SYM *reduc_symp, LOGICAL rmme,
      *    shared  <-- intrin(shared, private)
      */
     (void)ref_intrin(&intrin, arg1);
-    if (OPT_OMP_ATOMIC && sem.mpaccatomic.rmw_op != AOP_UNDEF) {
+    if (use_atomic_for_reduction(sem.doif_depth) &&
+        sem.mpaccatomic.rmw_op != AOP_UNDEF) {
       MEMORY_ORDER save_mem_order = sem.mpaccatomic.mem_order;
       sem.mpaccatomic.mem_order = MO_SEQ_CST;
       mklvalue(&lhs, 1);
@@ -7985,7 +8101,7 @@ gen_reduction(REDUC *reducp, REDUC_SYM *reduc_symp, LOGICAL rmme,
     SST_ASTP(&op1, ast);
     SST_SHAPEP(&op1, A_SHAPEG(ast));
 
-    if (OPT_OMP_ATOMIC && get_atomic_rmw_op(opc) != AOP_UNDEF) {
+    if (use_atomic_for_reduction(sem.doif_depth)&& get_atomic_rmw_op(opc) != AOP_UNDEF) {
       MEMORY_ORDER save_mem_order = sem.mpaccatomic.mem_order;
 
       sem.mpaccatomic.rmw_op = get_atomic_rmw_op(opc);
@@ -8027,7 +8143,7 @@ end_reduction(REDUC *red, int doif)
 {
   REDUC *reducp;
   REDUC_SYM *reduc_symp;
-  int ast_crit, ast_endcrit;
+  int ast_crit, ast_endcrit, ast_red;
   int save_par, save_target, save_teams;
   LOGICAL done = FALSE;
   LOGICAL in_parallel = FALSE;
@@ -8056,7 +8172,7 @@ end_reduction(REDUC *red, int doif)
         if (reduc_symp->shared == 0)
           /* error - illegal reduction variable */
           continue;
-        if (!OPT_OMP_ATOMIC && !done) {
+        if (!use_atomic_for_reduction(sem.doif_depth) && !done) {
           ast_crit = emit_bcs_ecs(A_MP_CRITICAL);
           done = TRUE;
         }
@@ -8070,8 +8186,18 @@ end_reduction(REDUC *red, int doif)
       if (reduc_symp->shared == 0)
         /* error - illegal reduction variable or set by loop above */
         continue;
-      if (!OPT_OMP_ATOMIC && !done) {
+      if (!use_atomic_for_reduction(sem.doif_depth) && !done) {
+#ifdef OMP_OFFLOAD_LLVM
+        ast_red = mk_stmt(A_MP_BREDUCTION, 0);
+        (void) add_stmt(ast_red);
+#endif
         ast_crit = emit_bcs_ecs(A_MP_CRITICAL);
+#ifdef OMP_OFFLOAD_LLVM
+        if (!use_atomic_for_reduction(sem.doif_depth)) {
+          A_ISOMPREDUCTIONP(ast_crit, 1);
+          gen_reduction_ompaccel(reducp, reduc_symp, FALSE, in_parallel);
+        }
+#endif
         done = TRUE;
       }
       gen_reduction(reducp, reduc_symp, FALSE, in_parallel);
@@ -8082,10 +8208,17 @@ end_reduction(REDUC *red, int doif)
   sem.parallel = save_par;
   sem.target = save_target;
   sem.teams = save_teams;
-  if (!OPT_OMP_ATOMIC) {
+  if (!use_atomic_for_reduction(sem.doif_depth)) {
     ast_endcrit = emit_bcs_ecs(A_MP_ENDCRITICAL);
     A_LOPP(ast_crit, ast_endcrit);
     A_LOPP(ast_endcrit, ast_crit);
+#ifdef OMP_OFFLOAD_LLVM
+    A_ISOMPREDUCTIONP(ast_endcrit, 1);
+#endif
+#ifdef OMP_OFFLOAD_LLVM
+    ast_red = mk_stmt(A_MP_EREDUCTION, 0);
+    (void)add_stmt(ast_red);
+#endif
   }
 }
 
@@ -8461,10 +8594,22 @@ static void
 begin_combine_constructs(BIGINT64 construct)
 {
   int doif = sem.doif_depth;
-  int ast;
+  int ast, combinedMode;
   LOGICAL do_enter = FALSE;
 
   has_team = FALSE;
+#if defined(OMP_OFFLOAD_LLVM) || defined(OMP_OFFLOAD_PGI)
+  combinedMode = get_omp_combined_mode(construct);
+  if (flg.omptarget) {
+    if (!CL_PRESENT(CL_SCHEDULE)) {
+      if (combinedMode == mode_target_teams_distribute_parallel_for_simd ||
+          combinedMode == mode_target_teams_distribute_parallel_for)
+        add_clause(CL_SCHEDULE, TRUE);
+      CL_VAL(CL_SCHEDULE) = DI_SCH_STATIC;
+      chunk = 3;
+    }
+  }
+#endif
   save_clauses();
 
   if (BT_SIMD & construct) {
@@ -8473,6 +8618,25 @@ begin_combine_constructs(BIGINT64 construct)
 
   if (BT_TARGET & construct) {
     do_btarget(sem.doif_depth);
+    ast = DI_BTARGET(sem.doif_depth);
+#ifdef OMP_OFFLOAD_LLVM
+    if (flg.omptarget) {
+      if (combinedMode == mode_target_teams_distribute_parallel_for_simd) {
+        errwarn(1203);
+        combinedMode = mode_target_teams_distribute_parallel_for;
+      } else if (combinedMode == mode_target_parallel_for_simd) {
+        errwarn(1203);
+        combinedMode = mode_target_parallel_for;
+      } else if (combinedMode == mode_target_teams_distribute) {
+        error(1202, ERR_Severe, gbl.lineno, "target teams distribute",
+              "parallel do");
+      } else if (combinedMode == mode_target_teams) {
+        error(1202, ERR_Severe, gbl.lineno, "target teams",
+             "distribute parallel do");
+      }
+      A_COMBINEDTYPEP(ast, combinedMode);
+    }
+#endif
     do_enter = TRUE;
   }
   if (BT_TEAMS & construct) {
@@ -8530,8 +8694,6 @@ begin_combine_constructs(BIGINT64 construct)
     DI_BPAR(doif) = emit_bpar();
     par_push_scope(FALSE);
     begin_parallel_clause(sem.doif_depth);
-
-    return;
   }
   if (BT_PAR & construct) {
     if (do_enter) {
@@ -9580,6 +9742,8 @@ mp_add_shared_var(int sptr, int stblk)
         if (cvlen == 0) {
           cvlen = sym_get_scalar(SYMNAME(sptr), "len", DT_INT);
           CVLENP(sptr, cvlen);
+          if (SCG(sptr) == SC_DUMMY)
+            CCSYMP(cvlen, 1);
         }
         llmp_add_shared_var(up, CVLENG(sptr));
       }
@@ -9935,7 +10099,130 @@ is_in_list(int clause, int sptr)
 
   return FALSE;
 }
+#ifdef OMP_OFFLOAD_LLVM
 
+static void
+gen_reduction_ompaccel(REDUC *reducp, REDUC_SYM *reduc_symp, LOGICAL rmme,
+                       LOGICAL in_parallel)
+{
+  int ast_reditem;
+  REDUC *current_red = reducp;
+  REDUC_SYM *current_redsym;
+  while (true) {
+    if (current_red == NULL)
+      break;
+    current_redsym = current_red->list;
+    while (true) {
+      if (current_redsym == NULL)
+        break;
+
+      ast_reditem = mk_stmt(A_MP_REDUCTIONITEM, 0);
+      A_SHSYMP(ast_reditem, current_redsym->shared);
+      A_PRVSYMP(ast_reditem, current_redsym->Private);
+      if (current_red->opr == 0)
+        A_REDOPRP(ast_reditem, current_red->intrin);
+      else
+        A_REDOPRP(ast_reditem, current_red->opr);
+      add_stmt(ast_reditem);
+
+      current_redsym = current_redsym->next;
+    }
+    current_red = current_red->next;
+  }
+}
+#endif /* OMP_OFFLOAD_LLVM */
+
+#if defined(OMP_OFFLOAD_LLVM) || defined(OMP_OFFLOAD_PGI)
+static void
+mp_check_maptype(const char *maptype)
+{
+  if (strcmp(maptype, "tofrom") && strcmp(maptype, "from") &&
+      strcmp(maptype, "to") && strcmp(maptype, "alloc") &&
+      strcmp(maptype, "release") && strcmp(maptype, "delete"))
+    error(1205, ERR_Severe, gbl.lineno, maptype, 0);
+}
+
+static void
+mp_handle_map_clause(SST *top, int clause, char *maptype, int op, int construct,
+                     bool isalways)
+{
+  ITEM *itemp, *itembeg, *itemend;
+  int type = 0;
+  type |= OMP_TGT_MAPTYPE_TARGET_PARAM;
+  if (isalways)
+    type |= OMP_TGT_MAPTYPE_ALWAYS;
+
+  if (!strcmp(maptype, "tofrom"))
+    type |= OMP_TGT_MAPTYPE_FROM | OMP_TGT_MAPTYPE_TO;
+  else if (!strcmp(maptype, "from"))
+    type |= OMP_TGT_MAPTYPE_FROM;
+  else if (!strcmp(maptype, "to"))
+    type |= OMP_TGT_MAPTYPE_TO;
+  else if (!strcmp(maptype, "alloc"))
+    type |= OMP_TGT_MAPTYPE_NONE; // todo opmaccel dunno what to pass
+  else if (!strcmp(maptype, "delete"))
+    type |= OMP_TGT_MAPTYPE_DELETE;
+  else if (!strcmp(maptype, "release"))
+    type |= OMP_TGT_MAPTYPE_NONE; // todo opmaccel dunno what to pass
+
+  if (construct == DI_TARGETENTERDATA) {
+    if (strcmp(maptype, "to") && strcmp(maptype, "alloc")) {
+      error(1205, ERR_Severe, gbl.lineno, maptype, 0);
+    }
+  }
+  if (construct == DI_TARGETEXITDATA) {
+    if (strcmp(maptype, "from") && strcmp(maptype, "delete") &&
+        strcmp(maptype, "release")) {
+      error(1203, ERR_Severe, gbl.lineno, maptype, 0);
+    }
+  }
+
+  itembeg = SST_BEGG(RHS(op));
+  itemend = SST_ENDG(RHS(op));
+  if (itembeg == ITEM_END)
+    return;
+  for (itemp = itembeg; itemp != ITEM_END; itemp = itemp->next) {
+    itemp->t.cltype = type;
+  }
+  add_clause(clause, FALSE);
+  if (CL_FIRST(clause) == NULL)
+    CL_FIRST(clause) = itembeg;
+  else
+    ((ITEM *)CL_LAST(clause))->next = itembeg;
+  CL_LAST(clause) = itemend;
+}
+
+static int
+get_omp_combined_mode(BIGINT64 type)
+{
+  BIGINT64 combined_type;
+  combined_type = BT_TARGET | BT_TEAMS | BT_DISTRIBUTE | BT_PARDO | BT_SIMD;
+  if ((type & combined_type) == combined_type)
+    return mode_target_teams_distribute_parallel_for_simd;
+  combined_type = BT_TARGET | BT_TEAMS | BT_DISTRIBUTE | BT_PARDO;
+  if ((type & combined_type) == combined_type)
+    return mode_target_teams_distribute_parallel_for;
+  combined_type = BT_TARGET | BT_TEAMS | BT_DISTRIBUTE;
+  if ((type & combined_type) == combined_type)
+    return mode_target_teams_distribute;
+  combined_type = BT_TARGET | BT_TEAMS;
+  if ((type & combined_type) == combined_type)
+    return mode_target_teams;
+  combined_type = BT_TARGET | BT_PARDO;
+  if ((type & combined_type) == combined_type)
+    return mode_target_parallel_for;
+  combined_type = BT_TARGET | BT_PAR;
+  if ((type & combined_type) == combined_type)
+    return mode_target_parallel;
+  combined_type = BT_TARGET | BT_PARDO | BT_SIMD;
+  if ((type & combined_type) == combined_type)
+    return mode_target_parallel_for_simd;
+  if ((type & BT_TARGET))
+    return mode_target;
+  return mode_none_target;
+  return -1;
+}
+#endif
 /* Return FALSE if the sptr is presented in multiple
  * data sharing clauses: (e.g., shared(x) private(x)),
  * which is illegal.
@@ -10005,3 +10292,41 @@ check_map_data_sharing(int sptr)
   return TRUE;
 }
 
+static LOGICAL is_in_omptarget(int d)
+{
+  if(flg.omptarget && (DI_IN_NEST(d, DI_TARGET) ||
+      DI_IN_NEST(d, DI_TARGTEAMSDISTPARDO) ||
+      DI_IN_NEST(d, DI_TARGPARDO) ||
+      DI_IN_NEST(d, DI_TARGETSIMD) ||
+      DI_IN_NEST(d, DI_TARGTEAMSDIST)))
+    return TRUE;
+  return FALSE;
+}
+/**
+ * \brief Decide to use optimized atomic usage.
+ */
+LOGICAL use_opt_atomic(int d)
+{
+#ifdef OMP_OFFLOAD_LLVM
+  return is_in_omptarget(d);
+#endif
+  return OPT_OMP_ATOMIC;
+}
+
+/**
+   \brief Decide whether to use llvm atomic for reduction or not.
+   Atomic is used only for teams reduction.
+ */
+static LOGICAL use_atomic_for_reduction(int d)
+{
+#ifdef OMP_OFFLOAD_LLVM
+  if(flg.omptarget && DI_IN_NEST(d, DI_TARGET) ) {
+    if(DI_IN_NEST(d, DI_PARDO) ||
+        DI_IN_NEST(d, DI_TARGTEAMSDISTPARDO))
+      return OPT_OMP_ATOMIC;
+    else
+      return TRUE;
+  }
+#endif
+  return OPT_OMP_ATOMIC;
+}

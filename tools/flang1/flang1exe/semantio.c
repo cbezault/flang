@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1994-2018, NVIDIA CORPORATION.  All rights reserved.
+ * Copyright (c) 1994-2019, NVIDIA CORPORATION.  All rights reserved.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -3812,7 +3812,11 @@ semantio(int rednum, SST *top)
    *	<F2 item> ::= G <ffield> . <ffield> |
    */
   case F2_ITEM3:
-    put_edit(FED_Gw_d);
+    if (SST_CVALG(RHS(2)) == 0) {
+      put_edit(FED_G0_d);
+    } else {
+      put_edit(FED_Gw_d);
+    }
     put_ffield(RHS(2));
     put_ffield(RHS(4));
     break;
@@ -3986,6 +3990,13 @@ semantio(int rednum, SST *top)
     }
 
     break;
+  /*
+   *    <F2 item> ::= <g0format>
+   */
+  case F2_ITEM14:
+    put_edit(FED_G0);
+    break;
+
 
   /* ------------------------------------------------------------------ */
   /*
@@ -6149,6 +6160,8 @@ getWriteByDtypeRtn(int dtype, FormatType fmttyp)
     rtlRtn = (fmttyp == FT_LIST_DIRECTED) ? RTE_f90io_sc_i_ldw
                                           : RTE_f90io_sc_i_fmt_write;
     break;
+  case DT_BLOG:
+  case DT_SLOG:
   case DT_LOG4:
     rtlRtn = (fmttyp == FT_LIST_DIRECTED) ? RTE_f90io_sc_i_ldw
                                           : RTE_f90io_sc_i_fmt_write;

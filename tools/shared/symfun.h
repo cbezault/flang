@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2017-2018, NVIDIA CORPORATION.  All rights reserved.
+ * Copyright (c) 2017-2019, NVIDIA CORPORATION.  All rights reserved.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -28,7 +28,7 @@
 #endif
 
 #ifdef __cplusplus
-
+/* clang-format off */
 #ifdef CHECK_PORT
 inline void Precond(bool P) {
   assert(P, "precondition failed", 0, ERR_Fatal);
@@ -40,13 +40,13 @@ inline void Precond(bool P) {
 // ===========
 // DTY getters
 
-/// \brief Check if \p dtype is in legal range
+/// Check if \p dtype is in legal range
 inline bool DTyValidRange(DTYPE dtype) {
   return (dtype != DT_NONE) &&
     (static_cast<unsigned>(dtype) < stb.dt.stg_avail);
 }
 
-/// \brief Warning: do not use. Use DTY() instead.
+/// Warning: do not use. Use DTY() instead.
 inline ISZ_T unsafeDTY(int index) {
   return stb.dt.stg_base[index];
 }
@@ -58,11 +58,12 @@ inline TY_KIND DTY(DTYPE dtype) {
 }
 
 inline ISZ_T DTyCharLength(DTYPE dtype) {
-  Precond(DTY(dtype) == TY_CHAR || DTY(dtype) == TY_NCHAR);
   Precond(DTyValidRange(dtype));
+  Precond(DTY(dtype) == TY_CHAR || DTY(dtype) == TY_NCHAR);
   return unsafeDTY(static_cast<int>(dtype) + 1);
 }
 
+/// A valid sequence type is one of vector of T, pointer to T, or array of T
 inline bool DTySeqTyValid(DTYPE dtype) {
 #ifdef TY_VECT
   if (DTY(dtype) == TY_VECT)
@@ -71,33 +72,46 @@ inline bool DTySeqTyValid(DTYPE dtype) {
   return (DTY(dtype) == TY_PTR) || (DTY(dtype) == TY_ARRAY);
 }
 
+/// Get element type of a sequence type from the DTYPE table
 inline DTYPE DTySeqTyElement(DTYPE dtype) {
-  Precond(DTySeqTyValid(dtype));
   Precond(DTyValidRange(dtype));
+  Precond(DTySeqTyValid(dtype));
   return static_cast<DTYPE>(unsafeDTY(static_cast<int>(dtype) + 1));
 }
 
 inline ISZ_T DTyArrayDesc(DTYPE dtype) {
-  Precond(DTY(dtype) == TY_ARRAY);
   Precond(DTyValidRange(dtype));
+  Precond(DTY(dtype) == TY_ARRAY);
   return unsafeDTY(static_cast<int>(dtype) + 2);
 }
 
 inline void DTySetArrayDesc(DTYPE dtype, ISZ_T desc) {
-  Precond(DTY(dtype) == TY_ARRAY);
   Precond(DTyValidRange(dtype));
+  Precond(DTY(dtype) == TY_ARRAY);
   stb.dt.stg_base[static_cast<int>(dtype) + 2] = desc;
 }
 
-inline SPTR DTyAlgTyMember(DTYPE dtype) {
-  Precond(DTY(dtype) == TY_STRUCT || DTY(dtype) == TY_UNION);
+inline SPTR unsafeDTyEnumTag(DTYPE dtype) {
   Precond(DTyValidRange(dtype));
+  return static_cast<SPTR>(unsafeDTY(static_cast<int>(dtype) + 2));
+}
+
+/* Return the name of enum type */
+inline SPTR DTyEnumTyTag(DTYPE dtype) {
+  Precond(DTY(dtype) == TY_ENUM);
+  return unsafeDTyEnumTag(dtype);
+}
+
+/* Get the SPTR of a member of an algebraic type from the DTYPE table */
+inline SPTR DTyAlgTyMember(DTYPE dtype) {
+  Precond(DTyValidRange(dtype));
+  Precond(DTY(dtype) == TY_STRUCT || DTY(dtype) == TY_UNION);
   return static_cast<SPTR>(unsafeDTY(static_cast<int>(dtype) + 1));
 }
 
 inline ISZ_T DTyAlgTySize(DTYPE dtype) {
-  Precond(DTY(dtype) == TY_STRUCT || DTY(dtype) == TY_UNION);
   Precond(DTyValidRange(dtype));
+  Precond(DTY(dtype) == TY_STRUCT || DTY(dtype) == TY_UNION);
   return unsafeDTY(static_cast<int>(dtype) + 2);
 }
 
@@ -106,6 +120,7 @@ inline SPTR unsafeDTyAlgTyTag(DTYPE dtype) {
   return static_cast<SPTR>(unsafeDTY(static_cast<int>(dtype) + 3));
 }
 
+/* Return a SPTR which is the name of struct/union type */
 inline SPTR DTyAlgTyTag(DTYPE dtype) {
   Precond(DTY(dtype) == TY_STRUCT || DTY(dtype) == TY_UNION);
   return unsafeDTyAlgTyTag(dtype);
@@ -117,81 +132,82 @@ inline SPTR DTyAlgTyTagNeg(DTYPE dtype) {
 }
 
 inline ISZ_T DTyAlgTyAlign(DTYPE dtype) {
-  Precond(DTY(dtype) == TY_STRUCT || DTY(dtype) == TY_UNION);
   Precond(DTyValidRange(dtype));
+  Precond(DTY(dtype) == TY_STRUCT || DTY(dtype) == TY_UNION);
   return unsafeDTY(static_cast<int>(dtype) + 4);
 }
 
 inline int DTyAlgTyInitCon(DTYPE dtype) {
-  Precond(DTY(dtype) == TY_STRUCT || DTY(dtype) == TY_UNION);
   Precond(DTyValidRange(dtype));
+  Precond(DTY(dtype) == TY_STRUCT || DTY(dtype) == TY_UNION);
   return static_cast<int>(unsafeDTY(static_cast<int>(dtype) + 5));
 }
 
+/// Get the return type of a procedure/function
 inline DTYPE DTyReturnType(DTYPE dtype) {
-  Precond(DTY(dtype) == TY_PROC || DTY(dtype) == TY_PFUNC);
   Precond(DTyValidRange(dtype));
+  Precond(DTY(dtype) == TY_PROC || DTY(dtype) == TY_PFUNC);
   return static_cast<DTYPE>(unsafeDTY(static_cast<int>(dtype) + 1));
 }
 
 inline SPTR DTyInterface(DTYPE dtype) {
-  Precond(DTY(dtype) == TY_PROC);
   Precond(DTyValidRange(dtype));
+  Precond(DTY(dtype) == TY_PROC);
   return static_cast<SPTR>(unsafeDTY(static_cast<int>(dtype) + 2));
 }
 
 inline int DTyParamCount(DTYPE dtype) {
-  Precond(DTY(dtype) == TY_PROC);
   Precond(DTyValidRange(dtype));
+  Precond(DTY(dtype) == TY_PROC);
   return static_cast<int>(unsafeDTY(static_cast<int>(dtype) + 3));
 }
 
 inline int DTyParamDesc(DTYPE dtype) {
-  Precond(DTY(dtype) == TY_PROC);
   Precond(DTyValidRange(dtype));
+  Precond(DTY(dtype) == TY_PROC);
   return static_cast<int>(unsafeDTY(static_cast<int>(dtype) + 4));
 }
 
 inline SPTR DTyFuncVal(DTYPE dtype) {
-  Precond(DTY(dtype) == TY_PROC);
   Precond(DTyValidRange(dtype));
+  Precond(DTY(dtype) == TY_PROC);
   return static_cast<SPTR>(unsafeDTY(static_cast<int>(dtype) + 5));
 }
 
 inline DTYPE DTyParamList(DTYPE dtype) {
-  Precond(DTY(dtype) == TY_PFUNC);
   Precond(DTyValidRange(dtype));
+  Precond(DTY(dtype) == TY_PFUNC);
   return static_cast<DTYPE>(unsafeDTY(static_cast<int>(dtype) + 2));
 }
 
 inline DTYPE DTyArgType(DTYPE dtype) {
-  Precond(DTY(dtype) == TY_PARAM);
   Precond(DTyValidRange(dtype));
+  Precond(DTY(dtype) == TY_PARAM);
   return static_cast<DTYPE>(unsafeDTY(static_cast<int>(dtype) + 1));
 }
 
 inline SPTR DTyArgSym(DTYPE dtype) {
-  Precond(DTY(dtype) == TY_PARAM);
   Precond(DTyValidRange(dtype));
+  Precond(DTY(dtype) == TY_PARAM);
   return static_cast<SPTR>(unsafeDTY(static_cast<int>(dtype) + 2));
 }
 
 inline DTYPE DTyArgNext(DTYPE dtype) {
-  Precond(DTY(dtype) == TY_PARAM);
   Precond(DTyValidRange(dtype));
+  Precond(DTY(dtype) == TY_PARAM);
   return static_cast<DTYPE>(unsafeDTY(static_cast<int>(dtype) + 3));
 }
 
 #ifdef TY_VECT
 inline ISZ_T DTyVecLength(DTYPE dtype) {
-  Precond(DTY(dtype) == TY_VECT);
   Precond(DTyValidRange(dtype));
+  Precond(DTY(dtype) == TY_VECT);
   return unsafeDTY(static_cast<int>(dtype) + 2);
 }
 
 inline void DTySetVecLength(DTYPE dtype, ISZ_T length) {
-  Precond(DTY(dtype) == TY_VECT);
   Precond(DTyValidRange(dtype));
+  Precond(DTY(dtype) == TY_VECT);
   stb.dt.stg_base[static_cast<int>(dtype) + 2] = length;
 }
 #endif
@@ -289,8 +305,8 @@ inline void DTySetFuncVal(DTYPE dtype, SPTR fval) {
 }
 
 inline void DTySetParamList(DTYPE dtype, DTYPE param) {
-  Precond(DTY(dtype) == TY_PFUNC);
   Precond(DTyValidRange(dtype));
+  Precond(DTY(dtype) == TY_PFUNC);
   stb.dt.stg_base[static_cast<int>(dtype) + 2] = param;
 }
 
@@ -466,9 +482,17 @@ ST_GetterInstance(THPRVTOPTG, SPTR, ThreadPrivate)
 #undef THPRVTOPTG
 #define THPRVTOPTG(X) STGetThreadPrivate(X)
 
+ST_GetterInstance(TYPDEF_INITG, SPTR, TypedefInit)
+#undef TYPDEF_INITG
+#define TYPDEF_INITG(X) STGetTypedefInit(X)
+
 ST_GetterInstance(VARIANTG, SPTR, Variant)
 #undef VARIANTG
 #define VARIANTG(X) STGetVariant(X)
+
+ST_GetterInstance(VTABLEG, SPTR, VTable)
+#undef VTABLEG
+#define VTABLEG(X) STGetVTable(X)
 
 ST_GetterInstance(XREFLKG, ISZ_T, DsrtInit)
 ST_GetterInstance(XREFLKG, SPTR, CrossRefLink)
@@ -484,6 +508,7 @@ ST_GetterInstance(XREFLKG, SPTR, CrossRefLink)
 #define DTySetArrayDesc(D,E) (DTY((D) + 2) = (E))
 #define DTyVecLength(D)      DTY((D) + 2)
 #define DTySetVecLength(D,E) (DTY((D) + 2) = (E))
+#define DTyEnumTyTag(D)      DTY((D) + 2)
 #define DTyAlgTyMember(D)    DTY((D) + 1)
 #define DTyAlgTySize(D)      DTY((D) + 2)
 #define DTyAlgTyTag(D)       DTY((D) + 3)

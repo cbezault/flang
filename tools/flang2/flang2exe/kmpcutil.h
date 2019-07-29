@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2016-2018, NVIDIA CORPORATION.  All rights reserved.
+ * Copyright (c) 2016-2019, NVIDIA CORPORATION.  All rights reserved.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -21,6 +21,7 @@
 #include "gbldefs.h"
 #include "global.h"
 #include "symtab.h"
+#include "ili.h"
 
 /** \file
  * \brief Various definitions for the kmpc runtime
@@ -63,6 +64,7 @@ typedef enum _kmpc_sched_e {
   KMP_ORD_UPPER = 72,
   KMP_DISTRIBUTE_STATIC_CHUNKED = 91,
   KMP_DISTRIBUTE_STATIC = 92,
+  KMP_DISTRIBUTE_STATIC_CHUNKED_CHUNKONE = 93,
   KMP_NM_LOWER = 160,
   KMP_NM_STATIC = 162,
   KMP_NM_GUIDED_CHUNKED = 164,
@@ -83,15 +85,15 @@ typedef struct _loop_args_t {
   SPTR upper;
   SPTR stride;
   SPTR chunk;
-  int last;
-  int upperd;
+  SPTR last;
+  SPTR upperd;
   DTYPE dtype;        /* Lower/Upper bound data type INT,INT8,UINT, UINT8 */
   kmpc_sched_e sched; /* KMPC schedule type */
 } loop_args_t;
 
 struct kmpc_api_entry_t {
   const char *name;      /* KMPC API function name                    */
-  const int ret_iliopc;  /* KMPC API function return value ili opcode */
+  const ILI_OP ret_iliopc;  /* KMPC API function return value ili opcode */
   const DTYPE ret_dtype; /* KMPC API function return value type       */
   const int flags;       /* (Optional) See KMPC_FLAG_XXX above        */
 };
@@ -158,6 +160,16 @@ enum {
   KMPC_API_PUSH_PROC_BIND,
   KMPC_API_ATOMIC_RD,
   KMPC_API_ATOMIC_WR,
+  /* Begin - OpenMP Accelerator RT (libomptarget-nvptx) - non standard - */
+  KMPC_API_PUSH_TARGET_TRIPCOUNT,
+  KMPC_API_FOR_STATIC_INIT_SIMPLE_SPMD,
+  KMPC_API_SPMD_KERNEL_INIT,
+  KMPC_API_KERNEL_INIT_PARAMS,
+  KMPC_API_SHUFFLE_I32,
+  KMPC_API_SHUFFLE_I64,
+  KMPC_API_NVPTX_PARALLEL_REDUCE_NOWAIT_SIMPLE_SPMD,
+  KMPC_API_NVPTX_END_REDUCE_NOWAIT,
+  /* End - OpenMP Accelerator RT (libomptarget-nvptx) - non standard - */
   KMPC_API_N_ENTRIES /* <-- Always last */
 };
 
@@ -201,15 +213,12 @@ int ll_make_kmpc_cancel(int argili);
  */
 int ll_make_kmpc_cancellationpoint(int argili);
 
-/**
-   \brief ...
- */
-int ll_make_kmpc_copyprivate(int array_sptr, int single_ili, int copyfunc_acon);
+/// Return a result or JSR ili to __kmpc_copyprivate()
+int ll_make_kmpc_copyprivate(SPTR array_sptr, int single_ili,
+                             int copyfunc_acon);
 
-/**
-   \brief ...
- */
-int ll_make_kmpc_critical(int sem);
+/// Return a result or JSR ili to __kmpc_critical()
+int ll_make_kmpc_critical(SPTR sem);
 
 /**
    \brief ...
@@ -221,10 +230,9 @@ int ll_make_kmpc_dispatch_fini(DTYPE dtype);
  */
 int ll_make_kmpc_dispatch_init(const loop_args_t *inargs);
 
-/**
-   \brief ...
- */
-int ll_make_kmpc_dispatch_next(int lower, int upper, int stride, int last,
+/// Return a result or JSR ili to __kmpc_dispatch_next_<size><signed|unsigned>
+/// lower, upper, stride: sptrs
+int ll_make_kmpc_dispatch_next(SPTR lower, SPTR upper, SPTR stride, SPTR last,
                                DTYPE dtype);
 
 /**
@@ -237,10 +245,8 @@ int ll_make_kmpc_dist_dispatch_init(const loop_args_t *inargs);
  */
 int ll_make_kmpc_dist_for_static_init(const loop_args_t *inargs);
 
-/**
-   \brief ...
- */
-int ll_make_kmpc_end_critical(int sem);
+/// Return a result or JSR ili to __kmpc_end_critical()
+int ll_make_kmpc_end_critical(SPTR sem);
 
 /**
    \brief ...
@@ -267,15 +273,13 @@ int ll_make_kmpc_end_single(void);
  */
 int ll_make_kmpc_end_taskgroup(void);
 
-/**
-   \brief ...
- */
+/// Return a result or JSR ili to __kmpc_flush()
 int ll_make_kmpc_flush(void);
 
 /**
    \brief ...
  */
-int ll_make_kmpc_fork_call(SPTR sptr, int argc, int *arglist, RegionType rt);
+int ll_make_kmpc_fork_call(SPTR sptr, int argc, int *arglist, RegionType rt, int ngangs_ili);
 
 /**
    \brief ...
@@ -353,21 +357,22 @@ int ll_make_kmpc_single(void);
 DTYPE ll_make_kmpc_struct_type(int count, char *name, KMPC_ST_TYPE *meminfo,
                                ISZ_T sz);
 
-/**
-   \brief ...
- */
-int ll_make_kmpc_task_arg(SPTR base, int sptr, int scope_sptr, SPTR flags_sptr,
-                          int uplevel_ili);
+/// Return an sptr to the allocated task object:  __kmp_omp_task_alloc()
+/// \param base  sptr for storing return value from __kmpc_omp_task_alloc
+/// \param sptr  sptr representing the outlined function that is the task
+/// \param flags MP_TASK_xxx flags (see mp.h)
+/// \param scope_sptr ST_BLOCK containing the uplevel block
+/// \param uplevel_ili unused
+SPTR ll_make_kmpc_task_arg(SPTR base, SPTR sptr, SPTR scope_sptr,
+                           SPTR flags_sptr, int uplevel_ili);
 
-/**
-   \brief ...
- */
-int ll_make_kmpc_task_begin_if0(int task_sptr);
+/// Return a JSR ili to __kmpc_omp_task_begin_if0.
+/// \param task_sptr sptr representing the allocated task
+int ll_make_kmpc_task_begin_if0(SPTR task_sptr);
 
-/**
-   \brief ...
- */
-int ll_make_kmpc_task_complete_if0(int task_sptr);
+/// Return a JSR ili to __kmpc_omp_task_complete_if0.
+/// \param task_sptr sptr representing the allocated task
+int ll_make_kmpc_task_complete_if0(SPTR task_sptr);
 
 /**
    \brief ...
@@ -438,4 +443,39 @@ kmpc_sched_e mp_sched_to_kmpc_sched(int sched);
  */
 void reset_kmpc_ident_dtype(void);
 
+/* OpenMP Accelerator RT - non standard */
+/* Only Available for linomptarget-nvptx device runtime */
+#if defined(OMP_OFFLOAD_LLVM) || defined(OMP_OFFLOAD_PGI)
+/**
+   \brief cuda special register shuffling for int 32 or int 64
+ */
+int ll_make_kmpc_shuffle(int, int, int, bool);
+
+/**
+  \brief SPMD mode - static loop init
+*/
+int ll_make_kmpc_for_static_init_simple_spmd(const loop_args_t *, int);
+
+/**
+  \brief SPMD mode - kernel init.
+*/
+int ll_make_kmpc_spmd_kernel_init(int);
+
+/**
+  \brief Push the trip count of the loop that is going to be parallelized.
+*/
+int ll_make_kmpc_push_target_tripcount(int, SPTR);
+
+/**
+  \brief Parallel reduction within kernel for SPMD mode
+*/
+int ll_make_kmpc_nvptx_parallel_reduce_nowait_simple_spmd(int, int, int, SPTR, SPTR);
+
+/**
+  \brief End of reduction within kernel
+*/
+int ll_make_kmpc_nvptx_end_reduce_nowait();
+
+/* End OpenMP Accelerator RT - non standard */
+#endif
 #endif /* KMPC_RUNTIME_H_ */

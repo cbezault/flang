@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1993-2018, NVIDIA CORPORATION.  All rights reserved.
+ * Copyright (c) 1993-2019, NVIDIA CORPORATION.  All rights reserved.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -92,7 +92,7 @@ sym_init(void)
   default_real = XBIT(124, 0x8) ? DT_DBLE : DT_REAL;
   for (i = 0; i < 54; i++) {
     dtimplicit[i].dtype = default_real;
-    dtimplicit[i].set = FALSE;
+    dtimplicit[i].set = false;
   }
 
   default_int = flg.i4 ? DT_INT : DT_SINT;
@@ -780,7 +780,7 @@ newimplicit(int firstc, int lastc, DTYPE dtype)
         error((error_code_t)54, ERR_Severe, gbl.lineno, temp, CNULL);
     }
     dtimplicit[i].dtype = dtype;
-    dtimplicit[i].set = TRUE;
+    dtimplicit[i].set = true;
   }
 }
 
@@ -1336,6 +1336,36 @@ symdentry(FILE *file, int sptr)
     fprintf(dfil,
             "symlk: %d   address: %" ISZ_PF "d   conval1: %d   conval2: %d\n",
             SYMLKG(sptr), ADDRESSG(sptr), CONVAL1G(sptr), CONVAL2G(sptr));
+    if (DTY(dtype) == TY_VECT) {
+        int vc, n;
+        vc = CONVAL1G(sptr);
+        n = DTyVecLength(dtype);
+        fprintf(dfil, "    vcon_base[%d]:\n", vc);
+        for (i = 0; i < n; i += 4) {
+            const char *f1, *f2;
+            switch (DTySeqTyElement(dtype)) {
+            case DT_FLOAT:
+              f1 = "        %08x %08x";
+              f2 = " %08x";
+              break;
+            case DT_DBLE:
+            case DT_INT8:
+              f1 = "        %8d %8d";
+              f2 = " %8d";
+              break;
+            default:
+              f1 = "        %08x %08x";
+              f2 = " %08x";
+         }
+         fprintf(dfil, f1, VCON_CONVAL(vc + i), VCON_CONVAL(vc + i + 1));
+         if (n > 2) {
+             fprintf(dfil, f2, VCON_CONVAL(vc + i + 2));
+             if (n != 3)
+                 fprintf(dfil, f2, VCON_CONVAL(vc + i + 3));
+         }
+         fprintf(dfil, "\n");
+      }
+    }
     break;
 
   case ST_LABEL:
@@ -1523,7 +1553,7 @@ putcuda(FILE *dfil, int sptr)
 }
 
 /**
-   \brief Dump symbol table for debugging purposes.  If full == TRUE,
+   \brief Dump symbol table for debugging purposes.  If full == true,
    dump entire symbol table, otherwise dump symtab beginning with user
    symbols.
  */
@@ -1917,8 +1947,8 @@ mkfunc(const char *nmptr)
 typedef enum LLVMCallBack_t { NO_LLVM_CALLBACK, LLVM_CALLBACK } LLVMCallBack_t;
 
 static SPTR
-vmk_prototype(LLVMCallBack_t llCallBack, char *name, char *attr, DTYPE resdt,
-              int nargs, va_list vargs)
+vmk_prototype(LLVMCallBack_t llCallBack, const char *name, const char *attr,
+              DTYPE resdt, int nargs, va_list vargs)
 {
   DTYPE args[64];
   SPTR sptr;
@@ -1970,7 +2000,7 @@ vmk_prototype(LLVMCallBack_t llCallBack, char *name, char *attr, DTYPE resdt,
    cause regressions in testing.
  */
 SPTR
-mk_prototype(char *name, char *attr, DTYPE resdt, int nargs, ...)
+mk_prototype(const char *name, const char *attr, DTYPE resdt, int nargs, ...)
 {
   va_list vargs;
   SPTR rv;
@@ -1984,7 +2014,8 @@ mk_prototype(char *name, char *attr, DTYPE resdt, int nargs, ...)
    \brief Make a prototype and register it with LLVM
  */
 SPTR
-mk_prototype_llvm(char *name, char *attr, DTYPE resdt, int nargs, ...)
+mk_prototype_llvm(const char *name, const char *attr, DTYPE resdt, int nargs,
+                  ...)
 {
   va_list vargs;
   SPTR rv;

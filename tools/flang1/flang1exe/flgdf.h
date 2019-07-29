@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2017, NVIDIA CORPORATION.  All rights reserved.
+ * Copyright (c) 1994-2019, NVIDIA CORPORATION.  All rights reserved.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -68,7 +68,6 @@ FLG flg = {
     TRUE,  /* -hpf */
     FALSE, /* -nofreeform */
     FALSE, /* -nosequence */
-    FALSE, /* -nodghpfout */
     0,     /* no ipa */
     TRUE,  /* craft features are supported (if licensed) */
     TRUE,  /* generate the .prelink.f file */
@@ -77,6 +76,7 @@ FLG flg = {
     FALSE, /* -nosequence */
     25,    /* errorlimit */
     FALSE, /* don't allow smp directives */
+    FALSE,      /* omptarget - don't allow OpenMP Offload directives */
     0,                                     /* tpcount */
     0,          0, 0, 0, 0, 0, 0, 0, 0, 0, /* tpvalue */
 };

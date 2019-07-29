@@ -1,5 +1,5 @@
 #
-# Copyright (c) 1997-2018, NVIDIA CORPORATION.  All rights reserved.
+# Copyright (c) 1997-2019, NVIDIA CORPORATION.  All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -615,3 +615,36 @@ XNOR64	ilm	ilm
 XOR	ilm	ilm
 XOR64	ilm	ilm
 XOR8/KXOR	ilm	ilm
+MP_MAP ilm num
+MP_TARGETLOOPTRIPCOUNT sym
+MP_EMAP
+MP_BREDUCTION
+MP_EREDUCTION
+MP_REDUCTIONITEM sym sym num
+MP_TARGETMODE num ilm ilm ilm
+HFLD	ilm
+HFST	ilm	ilm
+HFCON	sym
+HFADD	ilm	ilm
+HFMUL	ilm	ilm
+HFSUB	ilm	ilm
+HFDIV	ilm	ilm
+HFNEG	ilm
+HFCMP	ilm	ilm
+R2HF	ilm
+D2HF	ilm
+HF2R	ilm
+HFFUNC	num	sym	ilms
+HFUFUNC/HFFUNC	num	sym	args
+HFMIN  ilm ilm
+HFMAX  ilm ilm
+UXLNEQV    ilm ilm
+UXLEQV ilm ilm
+UXLAND ilm ilm
+UXLNOT ilm
+UXLNEQV8   ilm ilm
+UXLEQV8    ilm ilm
+UXLAND8    ilm ilm
+UXLNOT8    ilm
+MP_BEGIN_DIR
+MP_END_DIR

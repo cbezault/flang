@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1994-2018, NVIDIA CORPORATION.  All rights reserved.
+ * Copyright (c) 1994-2019, NVIDIA CORPORATION.  All rights reserved.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -43,7 +43,6 @@
 
 #include "atomic_common.h"
 
-#define OPT_OMP_ATOMIC !XBIT(69,0x1000)
 
 static void gen_dinit(int, SST *);
 static void pop_subprogram(void);
@@ -99,6 +98,7 @@ static int ident_host_sub = 0;
 static void defer_ident_list(int ident, int proc);
 static void clear_ident_list();
 static void decr_ident_use(int ident, int proc);
+static void check_duplicate(bool checker, const char * op);
 #ifdef GSCOPEP
 static void fixup_ident_bounds(int);
 #endif
@@ -111,6 +111,7 @@ static void record_func_result(int func_sptr, int func_result_sptr,
                                LOGICAL in_ENTRY);
 static bool bindingNameRequiresOverloading(SPTR sptr);
 static void clear_iface(int i, SPTR iface);
+static bool do_fixup_param_vars_for_derived_arrays(bool, SPTR, int);
 
 static IFACE *iface_base;
 static int iface_avail;
@@ -141,13 +142,19 @@ static struct {
 #define _LEN_ADJ 4
 #define _LEN_DEFER 5
 
+/** \brief Subprogram prefix struct defintions for RECURESIVE, PURE,
+           IMPURE, ELEMENTAL, and MODULE. 
+ */
 static struct subp_prefix_t {
-  LOGICAL recursive;
-  LOGICAL pure;
-  LOGICAL impure;
-  LOGICAL elemental;
-  bool module;
+  bool recursive;  /** processing RECURSIVE attribute */
+  bool pure;       /** processing PURE attribute */
+  bool impure;     /** processing IMPURE attribute */
+  bool elemental;  /** processing ELEMENTAL attribute */
+  bool module;     /** processing MODULE attribute */
 } subp_prefix;
+
+static void clear_subp_prefix_settings(struct subp_prefix_t *);
+static void check_module_prefix();
 
 static int generic_rutype;
 static int mscall;
@@ -217,6 +224,9 @@ static int end_of_host;
 
 #define ET_B(e) (1 << e)
 
+#define SYMI_SPTR(i) aux.symi_base[i].sptr
+#define SYMI_NEXT(i) aux.symi_base[i].next
+
 /*
  * structure to record which attributes occurred for an entity type
  * declaration.
@@ -277,7 +287,7 @@ static struct {
        ET_B(ET_VALUE) | ET_B(ET_IMPL_MANAGED) | ET_B(ET_DEVICE))},
     {"parameter",
      ~(ET_B(ET_ACCESS) | ET_B(ET_DIMENSION) | ET_B(ET_SAVE) | ET_B(ET_VALUE) |
-       ET_B(ET_ASYNCHRONOUS))},
+       ET_B(ET_ASYNCHRONOUS) | ET_B(ET_CONSTANT))},
     {"pointer",
      ~(ET_B(ET_ACCESS) | ET_B(ET_DIMENSION) | ET_B(ET_OPTIONAL) |
        ET_B(ET_SAVE) | ET_B(ET_VALUE) | ET_B(ET_BIND) | ET_B(ET_INTENT) |
@@ -336,7 +346,8 @@ static struct {
     {"shared",
      ~(ET_B(ET_DIMENSION) | ET_B(ET_SAVE) | ET_B(ET_INTENT) |
        ET_B(ET_VOLATILE))},
-    {"constant", ~(ET_B(ET_DIMENSION) | ET_B(ET_INTENT) | ET_B(ET_ACCESS))},
+    {"constant", ~(ET_B(ET_DIMENSION) | ET_B(ET_INTENT) | ET_B(ET_ACCESS) |
+       ET_B(ET_PARAMETER))},
     {"protected",
      ~(ET_B(ET_ACCESS) | ET_B(ET_ALLOCATABLE) | ET_B(ET_DIMENSION) |
        ET_B(ET_INTENT) | ET_B(ET_OPTIONAL) | ET_B(ET_POINTER) | ET_B(ET_SAVE) |
@@ -515,7 +526,7 @@ semant_init(int noparse)
     sem.p_dealloc = NULL;
     sem.p_dealloc_delete = NULL;
     sem.alloc_std = 0;
-    BZERO(&subp_prefix, struct subp_prefix_t, 1);
+    clear_subp_prefix_settings(&subp_prefix);
     sem.accl.type = 0;    /* PUBLIC/PRIVATE statement not yet seen */
     sem.accl.next = NULL; /* access list is empty */
     sem.in_struct_constr = 0;
@@ -541,6 +552,7 @@ semant_init(int noparse)
     sem.expect_dist_do = FALSE;
     sem.expect_acc_do = 0;
     sem.collapsed_acc_do = 0;
+    sem.seq_acc_do = 0;
     sem.expect_cuf_do = 0;
     sem.close_pdo = FALSE;
     sem.is_hpf = FALSE;
@@ -585,6 +597,8 @@ semant_init(int noparse)
     sem.stats.nodes = 0;
     sem.modhost_proc = 0;
     sem.modhost_entry = 0;
+    sem.in_array_const = false;
+    sem.parsing_operator = false;
 
     mscall = 0;
     cref = 0;
@@ -776,7 +790,7 @@ static int restored = 0;
 void
 semant1(int rednum, SST *top)
 {
-  int sptr, sptr1, sptr2, dtype, dtypeset, ss, numss;
+  int sptr, sptr1, sptr2, dtype, dtypeset, ss, numss, sptr_temp;
   int stype, stype1, i;
   int begin, end, count;
   int opc;
@@ -823,6 +837,7 @@ semant1(int rednum, SST *top)
   int newpolicyidx;
   int newshapeid;
   int idptemp, newsubidx;
+  int symi;
 
   switch (rednum) {
 
@@ -1037,6 +1052,7 @@ semant1(int rednum, SST *top)
         sem.expect_dist_do = FALSE;
         sem.expect_acc_do = 0;
         sem.collapsed_acc_do = 0;
+        sem.seq_acc_do = 0;
         sem.expect_cuf_do = 0;
         sem.collapse = sem.collapse_depth = 0;
       }
@@ -1177,7 +1193,7 @@ semant1(int rednum, SST *top)
       }
       if (sem.mpaccatomic.seen &&
           sem.mpaccatomic.action_type != ATOMIC_CAPTURE) {
-        if ((!sem.mpaccatomic.is_acc && OPT_OMP_ATOMIC)) {
+        if ((!sem.mpaccatomic.is_acc && use_opt_atomic(sem.doif_depth))) {
          ;
         } else {
           if (sem.mpaccatomic.is_acc)
@@ -1214,6 +1230,7 @@ semant1(int rednum, SST *top)
         DI_ID(sem.doif_depth) != DI_SELECT_TYPE)
       check_no_scope_sptr();
     entity_attr.access = ' '; /* Need to reset entity access */
+    sem.parsing_operator = false;
     break;
 
   /* ------------------------------------------------------------------ */
@@ -1476,6 +1493,8 @@ semant1(int rednum, SST *top)
       convert_intrinsics_to_idents();
       save_host(&host_state);
       gbl.internal = 1;
+      if (sem.which_pass == 0)
+        gbl.empty_contains = FALSE;
       restore_host(&host_state, TRUE);
       if (sem.which_pass == 0) {
         /*
@@ -1519,6 +1538,9 @@ semant1(int rednum, SST *top)
       goto statement_shared;
     }
     if (IN_MODULE) {
+      if (ANCESTORG(gbl.currmod) && !HAS_SMP_DECG(ANCESTORG(gbl.currmod)))
+        error(1210, ERR_Severe, gbl.lineno, 
+              SYMNAME(ANCESTORG(gbl.currmod)), CNULL); 
       fe_save_state();
       begin_contains();
       sem.pgphase = PHASE_INIT;
@@ -1567,7 +1589,7 @@ semant1(int rednum, SST *top)
       int ecs;
       sem.mpaccatomic.apply = FALSE;
       if (!sem.mpaccatomic.is_acc) {
-        if (OPT_OMP_ATOMIC) {
+        if (use_opt_atomic(sem.doif_depth)) {
           ecs = mk_stmt(A_MP_ENDATOMIC, 0);
           add_stmt(ecs);
         } else {
@@ -1638,22 +1660,36 @@ semant1(int rednum, SST *top)
           mod_end_subprogram_two();
         if (sem.which_pass != 0 || gbl.internal == 0)
           semfin_free_memory();
-        if (sem.which_pass == 0 && gbl.internal > 1) {
-          /*
-           * we're at the end of an internal procedure within a
-           * a module during the first pass over the module.
-           * The scanner does not set scn.end_program_unit to TRUE
-           * in this context.  So now, need to reinitialize for the
-           * next internal subprogram if it appears.
-           */
-          restore_host_state(1);
-          restore_host(&host_state, TRUE);
-          gbl.currsub = 0;
-          sem.pgphase = PHASE_INIT;
-          gbl.p_adjarr = NOSYM;
-          gbl.p_adjstr = NOSYM;
+        if (sem.which_pass == 0) {
+          /* CONTAINS clause has an empty body without any internal subprograms */
+          if (gbl.internal == 1) {
+            /* even if it CONTAINS no internal routine, still need to change 
+               the entry points of the containing */
+            if (STYPEG(gbl.currsub) == ST_ENTRY)
+              STYPEP(gbl.currsub, ST_PROC);
+
+            gbl.currsub = 0;
+            gbl.internal = 0;
+            gbl.empty_contains = TRUE;
+            gbl.p_adjarr = NOSYM;
+            gbl.p_adjstr = NOSYM;
+          } else if (gbl.internal > 1) {
+            /*
+             * we're at the end of an internal procedure within a
+             * a module during the first pass over the module.
+             * The scanner does not set scn.end_program_unit to TRUE
+             * in this context.  So now, need to reinitialize for the
+             * next internal subprogram if it appears.
+             */
+            restore_host_state(1);
+            restore_host(&host_state, TRUE);
+            gbl.currsub = 0;
+            sem.pgphase = PHASE_INIT;
+            gbl.p_adjarr = NOSYM;
+            gbl.p_adjstr = NOSYM;
+          }
         }
-      } else {
+    } else {
         if (IN_MODULE && sem.interface == 0) {
           gbl.currsub = end_of_host;
           mod_end_subprogram_two();
@@ -1901,6 +1937,7 @@ semant1(int rednum, SST *top)
   case PROG_TITLE7:
     sem.submod_sym = SST_SYMG(RHS(5));
     sptr = begin_submodule(sem.submod_sym, SST_SYMG(RHS(3)), NOSYM, &sptr1);
+    STYPEP(sem.submod_sym, ST_MODULE);
     goto module_shared;
   /*
    *	<prog title> ::= SUBMODULE ( <id> : <id> ) <id> |
@@ -1936,7 +1973,7 @@ semant1(int rednum, SST *top)
     push_scope_level(sem.mod_sym, SCOPE_NORMAL);
     push_scope_level(sem.mod_sym, SCOPE_MODULE);
     SST_ASTP(LHS, 0);
-    BZERO(&subp_prefix, struct subp_prefix_t, 1);
+    clear_subp_prefix_settings(&subp_prefix); 
 
     /* SUBMODULEs work as if they are hosted within their immediate parents. */
     if (sptr1 > NOSYM) {
@@ -2208,6 +2245,11 @@ semant1(int rednum, SST *top)
       pop_subprogram();
       pop_scope_level(SCOPE_NORMAL);
     }
+    if (gbl.empty_contains && sem.pgphase == PHASE_END && sem.which_pass == 0) {
+      /* empty CONTAINS body with no internal subprograms */
+      gbl.internal = 0;
+      sem.pgphase = PHASE_INIT;
+    }
     if (sem.pgphase != PHASE_INIT && !sem.interface) {
       if (IN_MODULE && !have_module_state()) {
         /* terminate -- ow, reset_module_state() will issue
@@ -2220,6 +2262,14 @@ semant1(int rednum, SST *top)
       }
       errsev(70);
     }
+    /* C1548: checking MODULE prefix for subprograms that were 
+              declared as separate module procedures */
+    if (!sem.interface && subp_prefix.module) {
+      sptr_temp = SST_SYMG(RHS(rhstop));
+      if (!SEPARATEMPG(sptr_temp) && !find_explicit_interface(sptr_temp))
+        error(1056, ERR_Severe, gbl.lineno, NULL, NULL);  
+    }
+
     /* First internal subprogram after CONTAINS, semfin may have altered the
      * symbol table
      * (esp. INVOBJ) for the host subprogram processing. Restore the state to
@@ -2254,7 +2304,11 @@ semant1(int rednum, SST *top)
       sptr = insert_sym(sptr);
 
     } else if (STYPEG(sptr) == ST_PROC && IN_MODULE_SPEC &&
-               get_seen_contains() && !sem.which_pass) {
+               get_seen_contains() && !sem.which_pass &&
+              /* separate module procedure is allowed to be declared &
+                 defined within the same module
+               */
+               !IS_INTERFACEG(sptr)) {
       LOGICAL err = TYPDG(sptr) && SCOPEG(sptr) != stb.curr_scope;
       if (!err) {
         int dpdsc = 0;
@@ -2299,8 +2353,10 @@ semant1(int rednum, SST *top)
         SCP(sptr, SC_EXTERN);
       else {
         SCP(sptr, SC_NONE);
-        if (sem.interf_base[sem.interface - 1].abstract)
+        if (sem.interf_base[sem.interface - 1].abstract) {
           ABSTRACTP(sptr, 1);
+          INMODULEP(sptr, IN_MODULE);
+        }
       }
     }
     PUREP(sptr, subp_prefix.pure);
@@ -2309,21 +2365,57 @@ semant1(int rednum, SST *top)
     ELEMENTALP(sptr, subp_prefix.elemental);
     if (subp_prefix.module) {
       if (!IN_MODULE && !INMODULEG(sptr)) {
-        ERR310("MODULE prefix allowed only within a module", CNULL);
+        ERR310("MODULE prefix allowed only within a module or submodule", CNULL);
       } else if (sem.interface) {
         /* Use SEPARATEMPP to mark this is submod related subroutines, 
          * functions, procdures to differentiate regular module. The 
          * SEPARATEMPP field is overloaded with ISSUBMODULEP field 
-         * ISSUBMODULEP is used for name mangling.  
+         * ISSUBMODULEP is used for name mangling. 
          */
-        /* TODO: ensure interface is in module spec. part */
         SEPARATEMPP(sptr, TRUE);
+        HAS_SMP_DECP(SCOPEG(sptr), TRUE);
+        if (IN_MODULE)
+          INMODULEP(sptr, TRUE);
+        if (SST_FIRSTG(RHS(rhstop))) {
+          TBP_BOUND_TO_SMPP(sptr, TRUE);
+          /* We also set the HAS_TBP_BOUND_TO_SMP flag on the separate module 
+           * procedure's module. This indicates that the module contains a 
+           * separate module procedure declaration to which at least one TBP
+           * has been bound.
+           */
+          HAS_TBP_BOUND_TO_SMPP(SCOPEG(sptr), TRUE);
+        }
       } else {
-        /* TODO: check definition vs. declared interface */
         SEPARATEMPP(sptr, TRUE);
+
+        /* check definition vs. declared interface */
+        /*  F2008 [12.6.2.5]
+            The characteristics and binding label of a procedure are fixed, but the 
+            remainder of the interface may differ in differing contexts, except that 
+            for a separate module procedure body.
+         */
+        if (sem.which_pass) {
+          SPTR def = find_explicit_interface(sptr);
+          /* Make sure this def is not from the contains of ancestor module*/
+          if (def > NOSYM) {
+            sptr_temp = SYMLKG(sptr) ? SYMLKG(sptr) : sptr;
+            /* Check Characteristics of procedures matches for definition vs. declaration*/
+            if (!cmp_interfaces_strict(def, sptr_temp, CMP_IFACE_NAMES | 
+                                                       CMP_SUBMOD_IFACE))
+              ;
+          }
+        }
       }
+    } else {
+      if (sem.interface && SYMIG(sptr) && INMODULEG(sptr)) {
+        for (symi = SYMIG(sptr); symi; symi = SYMI_NEXT(symi)) {
+          if (STYPEG(SYMI_SPTR(symi)) == ST_OPERATOR || 
+              STYPEG(SYMI_SPTR(symi)) == ST_USERGENERIC)
+            error(1212, ERR_Severe, gbl.lineno, SYMNAME(sptr), NULL);
+        }
+      } 
     }
-    BZERO(&subp_prefix, struct subp_prefix_t, 1);
+    clear_subp_prefix_settings(&subp_prefix); 
     if (gbl.rutype == RU_FUNC) {
       /* for a FUNCTION (including ENTRY's), compiler created
        * symbols are created to represent the return values and
@@ -2387,6 +2479,7 @@ semant1(int rednum, SST *top)
    *	<subr prefix> ::= <prefix spec>
    */
   case SUBR_PREFIX2:
+    check_module_prefix();
     if (sem.interface) {
       /* set curr_scope to parent's scope, so subprogram ID
        * gets scope of parent */
@@ -2411,6 +2504,7 @@ semant1(int rednum, SST *top)
    *	<prefix> ::= RECURSIVE |
    */
   case PREFIX1:
+    check_duplicate(subp_prefix.recursive, "RECURSIVE");
     subp_prefix.recursive = TRUE;
     if (subp_prefix.elemental) {
       errsev(460);
@@ -2420,12 +2514,14 @@ semant1(int rednum, SST *top)
    *	<prefix> ::= PURE |
    */
   case PREFIX2:
+    check_duplicate(subp_prefix.pure, "PURE");
     subp_prefix.pure = TRUE;
     break;
   /*
    *	<prefix> ::= ELEMENTAL |
    */
   case PREFIX3:
+    check_duplicate(subp_prefix.elemental, "ELEMENTAL");
     subp_prefix.elemental = TRUE;
     if (subp_prefix.recursive) {
       errsev(460);
@@ -2443,6 +2539,7 @@ semant1(int rednum, SST *top)
    *      <prefix> ::= IMPURE
    */
   case PREFIX5:
+    check_duplicate(subp_prefix.impure, "IMPURE");
     subp_prefix.impure = TRUE;
     break;
 
@@ -2450,6 +2547,7 @@ semant1(int rednum, SST *top)
    *      <prefix> ::= MODULE
    */
   case PREFIX6:
+    check_duplicate(subp_prefix.module, "MODULE");
     subp_prefix.module = TRUE;
     break;
 
@@ -2514,6 +2612,12 @@ semant1(int rednum, SST *top)
    *	<func prefix> ::= <prefix spec> <data type>
    */
   case FUNC_PREFIX3:
+  /* fall through */
+  /*
+   *	<func prefix> ::= <prefix spec> <data type> <prefix spec>
+   */
+  case FUNC_PREFIX4:
+    check_module_prefix();
     if (sem.interface) {
       /* set curr_scope to parent's scope, so subprogram ID
        * gets scope of parent */
@@ -8570,8 +8674,12 @@ semant1(int rednum, SST *top)
              * link errors because we save descriptor early on in
              * the module.
              */
+            /* Note: The SC_STATIC fix is only required for polymorphic
+             * objects. For non-polymorphic objects, we can safely use
+             * SC_LOCAL since the type does not mutate.
+             */
             sav_sc = get_descriptor_sc();
-            set_descriptor_sc(SC_STATIC);
+            set_descriptor_sc(sem.class ? SC_STATIC : SC_LOCAL);
           }
           if (sem.class || has_tbp_or_final(dtype) ||
               STYPEG(sptr) == ST_MEMBER || DTY(DTYPEG(sptr)) == TY_ARRAY) {
@@ -8753,7 +8861,9 @@ semant1(int rednum, SST *top)
             SYMNAME(sptr));
     }
 
-    if (entity_attr.exist & ET_B(ET_PARAMETER)) {
+    if ((entity_attr.exist & ET_B(ET_PARAMETER)) || 
+        do_fixup_param_vars_for_derived_arrays(inited, sptr, 
+                                               SST_IDG(RHS(3)))) {
       if (inited) {
         fixup_param_vars(top, RHS(3));
         if (DTY(dtype) != TY_DERIVED && (DTY(dtype) != TY_ARRAY)) {
@@ -9906,6 +10016,13 @@ module_procedure_stmt:
         itemp->next == ITEM_END) {
       /* MODULE PROCEDURE <id> - begin separate module subprogram */
       sptr = itemp->t.sptr;
+      
+      /* C1548: checking MODULE prefix for subprograms that were
+              declared as separate module procedures */
+      if (!sem.interface && 
+          !SEPARATEMPG(sptr) && !SEPARATEMPG(ref_ident(sptr)))
+          error(1056, ERR_Severe, gbl.lineno, NULL, NULL);  
+     
       gbl.currsub = instantiate_interface(sptr);
       sem.module_procedure = TRUE;
       gbl.rutype = FVALG(sptr) > NOSYM ? RU_FUNC : RU_SUBR;
@@ -11283,9 +11400,6 @@ procedure_stmt:
    *	<binding name list> ::= <binding name list> , <binding name> |
    */
   case BINDING_NAME_LIST1:
-    error(155, 3, gbl.lineno,
-          "A type bound procedure can have only one binding name -",
-          SYMNAME(SST_SYMG(RHS(3))));
     break;
   /*
    *	<binding name list> ::= <binding name>
@@ -11326,6 +11440,9 @@ procedure_stmt:
     } else {
       sptr2 = refsym(SST_SYMG(RHS(rhstop)), OC_OTHER);
     }
+  
+    if (SEPARATEMPG(sptr2))
+      TBP_BOUND_TO_SMPP(sptr2, TRUE);
 
     if (bindingNameRequiresOverloading(sptr)) {
       sptr = insert_sym(sptr);
@@ -11396,7 +11513,11 @@ procedure_stmt:
      */
 
     if (STYPEG(orig_sptr) != ST_PD && STYPEG(sptr) != ST_PROC) {
-      IGNOREP(sptr, TRUE);
+      /* when found a binding name has a parameter attribute, don't ignore it 
+       * as we need to export this sptr into a *.mod file.
+       */
+      if (STYPEG(orig_sptr) != ST_PARAM)
+        IGNOREP(sptr, TRUE);
       sptr = insert_sym(sptr);
       sptr = declsym(sptr, ST_PROC, FALSE);
       IGNOREP(sptr, TRUE); /* Needed for overloading */
@@ -11987,11 +12108,23 @@ procedure_stmt:
    *	<mp decl> ::= <mp declaresimd> <declare simd> |
    */
   case MP_DECL1:
+#ifdef OMP_OFFLOAD_LLVM
+    if(flg.omptarget) {
+      error(1200, ERR_Severe, gbl.lineno, "declare simd",
+            NULL);
+    }
+#endif
     break;
   /*
    *	<mp decl> ::= <declare target> <opt par list> |
    */
   case MP_DECL2:
+#ifdef OMP_OFFLOAD_LLVM
+    if(flg.omptarget) {
+      error(1200, ERR_Severe, gbl.lineno, "declare target",
+            NULL);
+    }
+#endif
     break;
   /*
    *	<mp decl> ::= <declarered begin> <declare reduction>
@@ -13411,6 +13544,34 @@ clear_ident_list()
   dirty_ident_base = FALSE;
 }
 
+/** \brief Emit a warning if a duplicate subproblem prefix is used.
+ */
+static void
+check_duplicate(bool checker, const char *op)
+{
+  if (checker)
+   error(1054, ERR_Warning, gbl.lineno, op, NULL); 
+}
+
+/** \brief Reset subprogram prefixes to zeroes
+ */
+static void 
+clear_subp_prefix_settings(struct subp_prefix_t *subp)
+{
+  BZERO(subp, struct subp_prefix_t, 1);
+}
+
+/** \brief MODULE prefix checking for subprograms
+           C1547: cannot be inside a an abstract interface 
+ */
+static void
+check_module_prefix()
+{
+  if (sem.interface && subp_prefix.module && 
+      sem.interf_base[sem.interface - 1].abstract)
+    error(1055, ERR_Severe, gbl.lineno, NULL, NULL);
+}
+
 static void
 decr_ident_use(int ident, int proc)
 {
@@ -13804,7 +13965,8 @@ do_iface_module(void)
               iface_base[i].iface = 0;
             }
           }
-        } else if (gbl.currsub && scp && !INMODULEG(iface)) {
+        } else if (gbl.currsub && scp &&
+                   (!INMODULEG(iface) || ABSTRACTG(iface))) {
           switch (STYPEG(iface)) {
           case ST_MODPROC:
           case ST_ALIAS:
@@ -13932,7 +14094,8 @@ _do_iface(int iface_state, int i)
         goto iface_err;
       }
     }
-    return;
+    if (proc <= NOSYM)
+      return; 
   }
   if (strcmp(SYMNAME(iface), name) != 0)
     iface = getsymbol(name);
@@ -15571,7 +15734,8 @@ get_unl_poly_sym(int mem_dtype)
     DTY(dtype + 5) = 0;
     UNLPOLYP(sptr, 1);
     DCLDP(sptr, TRUE);
-    get_static_type_descriptor(sptr);
+    if (!sem.interface)
+      get_static_type_descriptor(sptr);
     if (mem_dtype) {
       mem = getccsym_sc('d', sem.dtemps++, ST_MEMBER, SC_NONE);
       DTYPEP(mem, mem_dtype);
@@ -16271,4 +16435,21 @@ sem_pgphase_name()
   default:
     return "unknown";
   }
+}
+
+/** \brief To re-initialize an array of derived types when found the 
+ *         following conditions are satisfied:
+           1. the element of the array is a derived type.
+           2. the array has been initialized before and needs to be 
+              re-initialized.
+           3. none of any entity attributes used for array definition.
+ */
+static bool
+do_fixup_param_vars_for_derived_arrays(bool inited, SPTR sptr, int sst_idg)
+{
+  return sem.dinit_count > 0 && inited && !entity_attr.exist &&
+         STYPEG(sptr) == ST_IDENT && sst_idg == S_ACONST && 
+         DTY(DTYPEG(sptr)) == TY_ARRAY && DTYG(DTYPEG(sptr)) == TY_DERIVED && 
+         /* found the tag has been initialized already with a valid sptr*/
+         DINITG(DTY(DTY(DTYPEG(sptr)+1)+3));
 }

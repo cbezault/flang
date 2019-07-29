@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1994-2018, NVIDIA CORPORATION.  All rights reserved.
+ * Copyright (c) 1994-2019, NVIDIA CORPORATION.  All rights reserved.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -523,7 +523,7 @@ byvalue_ref_arg(SST *e1, int *dtype, int op, int func_sptr)
 
     saved_dtype = A_DTYPEG(SST_ASTG(e1));
 
-    if ((A_TYPEG(SST_ASTG(e1)) == A_FUNC) && (is_iso_cptr(saved_dtype))) {
+    if ((A_TYPEG(SST_ASTG(e1)) == A_FUNC) && (is_iso_cptr(saved_dtype)) && !CFUNCG(func_sptr)) {
       /* functions returning c_ptr structs become funcs
          returning ints, so that we simply copy the
          (integer)pointer
@@ -947,6 +947,10 @@ func_call2(SST *stktop, ITEM *list, int flag)
 
               SST_ASTP(sp, new_ast);
               SST_IDP(sp, S_EXPR);
+            } else if (A_TYPEG(ARGT_ARG(A_ARGSG(SST_ASTG(sp)), 0)) != A_ID) {
+              // Inlining has problems with an expression in this context.
+              // Downstream code can always handle simple variables.
+              (void)tempify(sp);
             }
             /* else
              * iso_c_loc by reference pointer to pointer */
@@ -1775,10 +1779,17 @@ ptrfunc_call(SST *stktop, ITEM *list)
 
           } else if (get_byval(func_sptr, param_dummy)) {
             /*  function arguments not processed by lowerilm */
-
-            if (PASSBYVALG(param_dummy) &&
-                !need_tmp_retval(iface, param_dummy)) {
-              byvalue_ref_arg(sp, &dum, OP_BYVAL, iface);
+            if (PASSBYVALG(param_dummy)) {
+              if (OPTARGG(param_dummy)) {
+                int assn = sem_tempify(sp);
+                (void)add_stmt(assn);
+                SST_ASTP(sp, A_DESTG(assn));
+                byvalue_ref_arg(sp, &dum, OP_REF, func_sptr);
+              } else if (!need_tmp_retval(iface, param_dummy)) {
+                byvalue_ref_arg(sp, &dum, OP_BYVAL, iface);
+              } else {
+                byvalue_ref_arg(sp, &dum, OP_VAL, iface);
+              }
             } else {
               byvalue_ref_arg(sp, &dum, OP_VAL, iface);
             }
@@ -3560,22 +3571,27 @@ do_call:
              */
 
             ARGT_ARG(argt, ii) = rewrite_cptr_references(SST_ASTG(sp));
-            ii++;
+          } else if (get_byval(sptr, param_dummy)
+                    && PASSBYVALG(param_dummy)
+                    && OPTARGG(param_dummy)) {
+            int assn = sem_tempify(sp);
+            (void)add_stmt(assn);
+            SST_ASTP(sp, A_DESTG(assn));
+            byvalue_ref_arg(sp, &dum, OP_REF, sptr);
+            ARGT_ARG(argt, ii) = SST_ASTG(sp);
           } else if (pass_char_no_len(sptr, param_dummy)) {
             byvalue_ref_arg(sp, &dum, OP_REF, sptr);
             ARGT_ARG(argt, ii) = SST_ASTG(sp);
-            ii++;
           } else if (INTENTG(param_dummy) == INTENT_IN &&
                      POINTERG(param_dummy) && !is_ptr_arg(sp)) {
             /* F2008: pass non-pointer actual arg for an
              *        INTENT(IN), POINTER formal arg */
             ARGT_ARG(argt, ii) = gen_and_assoc_tmp_ptr(sp, sem.last_std);
-            ii++;
           } else {
             /* byval arguments done in lowerilm.c for  subroutines */
             ARGT_ARG(argt, ii) = ARG_AST(i);
-            ii++;
           }
+          ii++;
           if (sptr1 && STYPEG(sptr1) == ST_PROC && DPDSCG(sptr1) &&
               SLNKG(sptr1) == 0) {
             SLNKP(sptr1, aux.list[ST_PROC]);
@@ -3638,6 +3654,7 @@ do_call:
          subroutine calls.
        */
       param_dummy = inc_dummy_param(sptr);
+
       if (pass_char_no_len(sptr, param_dummy)) {
         itemp->t.sptr = byvalue_ref_arg(sp, &dum, OP_REF, sptr);
         ARGT_ARG(argt, ii) = SST_ASTG(sp);
@@ -4109,6 +4126,7 @@ ref_intrin(SST *stktop, ITEM *list)
   char tmpnm[64];
   FtnRtlEnum rtlRtn;
   int intrin; /* one of the I_* constants */
+  int is_real2_arg_error = 0;
 
   dtyper = 0;
   dtype1 = 0;
@@ -5031,7 +5049,11 @@ ref_intrin(SST *stktop, ITEM *list)
   const_getcon:
     conval = getcon(res, dtype);
   const_return:
-    dtype = INTTYPG(sptr);
+    if (ARGTYPG(sptr) == INTTYPG(sptr) && dtyper) {
+      dtype = dtyper;
+    } else {
+      dtype = INTTYPG(sptr);
+    }
   const_return_2:
     SST_IDP(stktop, S_CONST);
     SST_DTYPEP(stktop, dtype);
@@ -5109,7 +5131,8 @@ no_const_fold:
           break;
 #ifdef I_C_ASSOCIATED
         case IM_C_ASSOC:
-          /*mkexpr(sp);*/
+          if (SST_IDG(sp) == S_EXPR)
+            (void)tempify(sp);
           mkarg(sp, &dum);
           break;
 #endif
@@ -5563,6 +5586,7 @@ ref_pd(SST *stktop, ITEM *list)
   FtnRtlEnum rtlRtn;
   SPTR pdsym = SST_SYMG(stktop);
   int pdtype = PDNUMG(pdsym);
+  int is_real2_arg_error = 0;
 
 /* any integer type, or hollerith, or, if -x 51 0x20 not set, real/double */
 #define TYPELESS(dt)                     \
@@ -5871,8 +5895,6 @@ ref_pd(SST *stktop, ITEM *list)
     }
     break;
   case PD_findloc:
-    /* TODO: when the "back" argument is added to min/maxloc, merge
-     * find/min/maxloc code */
     if (count < 2 || count > 6) {
       E74_CNT(pdsym, count, 1, 6);
       goto call_e74_cnt;
@@ -5993,8 +6015,20 @@ ref_pd(SST *stktop, ITEM *list)
       dtyper2 = 0;
     }
 
+    /* back */
+    if ((stkp = ARG_STK(4))) {
+      dtype2 = DDTG(SST_DTYPEG(stkp));
+      if (!DT_ISLOG(dtype2)) {
+        E74_ARG(pdsym, 3, NULL);
+        goto call_e74_arg;
+      }
+      ARG_AST(3) = SST_ASTG(ARG_STK(4));
+    } else {
+      ARG_AST(3) = mk_cval(SCFTN_FALSE, DT_LOG);
+    }
+
     stkp = ARG_STK(0);
-    argt_count = 3;
+    argt_count = 4;
     dtype1 = SST_DTYPEG(stkp);
     if (!DT_ISNUMERIC_ARR(dtype1) &&
         !(DTY(dtype1) == TY_ARRAY &&
@@ -6046,13 +6080,16 @@ ref_pd(SST *stktop, ITEM *list)
   case PD_maxval:
   case PD_product:
   case PD_sum:
+  case PD_norm2:
     if (count == 0 || count > 3) {
       E74_CNT(pdsym, count, 1, 3);
       goto call_e74_cnt;
     }
-    if (evl_kwd_args(list, 3, KWDARGSTR(pdsym)))
+
+    // norm2 intrinsic does not have a mask arg
+    argt_count = pdtype == PD_norm2 ? 2 : 3;
+    if (evl_kwd_args(list, argt_count, KWDARGSTR(pdsym)))
       goto exit_;
-    argt_count = 3;
     dtype1 = SST_DTYPEG(ARG_STK(0));
     if (!DT_ISNUMERIC_ARR(dtype1)) {
       if (pdtype == PD_minval || pdtype == PD_maxval) {
@@ -6076,6 +6113,25 @@ ref_pd(SST *stktop, ITEM *list)
         goto call_e74_arg;
       }
     }
+
+    if (pdtype == PD_norm2) {
+      if (!DT_ISREAL_ARR(dtype1)) {
+        E74_ARG(pdsym, 0, NULL);
+        goto call_e74_arg;
+      }
+      if (ARG_STK(1)) {
+        // dim arg
+        ast = SST_ASTG(ARG_STK(1));
+        sptr = ast_is_sym(ast) ? memsym_of_ast(ast) : 0;
+
+        // If symbol, disallow if optional dummy arguments used as dim
+        if (sptr && OPTARGG(sptr)) {
+          E74_ARG(pdsym, 1, NULL);
+          goto call_e74_arg;
+        }
+      }
+    }
+
     dtyper = DTY(dtype1 + 1);
     if ((stkp = ARG_STK(2))) { /* mask */
       dtype2 = DDTG(SST_DTYPEG(stkp));
@@ -8304,110 +8360,6 @@ ref_pd(SST *stktop, ITEM *list)
     E74_ARG(pdsym, 0, NULL);
     goto call_e74_arg;
 
-  case PD_ceiling:
-  case PD_floor:
-    if (count > 2 || count == 0) {
-      E74_CNT(pdsym, count, 0, 2);
-      goto call_e74_cnt;
-    }
-    if (get_kwd_args(list, 2, KWDARGSTR(pdsym)))
-      goto exit_;
-
-    stkp = ARG_STK(0);
-    dtype1 = SST_DTYPEG(stkp);
-
-    (void)mkexpr(stkp);
-    argt = mk_argt(1);
-    ARGT_ARG(argt, 0) = SST_ASTG(stkp);
-
-    if ((stkp = ARG_STK(1))) { /* dtype2<-kind */
-      dtype2 = set_kind_result(stkp, DT_INT, TY_INT);
-      if (!dtype2) {
-        E74_ARG(pdsym, 1, NULL);
-        goto call_e74_arg;
-      }
-    } else {
-      dtype2 = stb.user.dt_int;
-    }
-
-    if (sem.dinit_data) {
-      gen_init_intrin_call(stktop, pdsym, count, dtype2, TRUE);
-      return 0;
-    }
-
-    tmpnm[0] = '\0';
-    if (dtype2 == DT_INT8) {
-      dtyper = DT_INT8;
-    } else {
-      dtyper = stb.user.dt_int;
-    }
-
-    switch (DTY(DDTG(dtype1))) {
-    case TY_REAL:
-      break;
-    case TY_DBLE:
-      strcat(tmpnm, "d");
-      break;
-    case TY_QUAD:
-      strcat(tmpnm, "q");
-      break;
-    default:
-      E74_ARG(pdsym, 0, NULL);
-      goto call_e74_arg;
-    }
-
-    if (pdtype == PD_ceiling) {
-      switch (DTY(DDTG(dtype1))) {
-      case TY_REAL:
-        rtlRtn = RTE_ceilingv;
-        break;
-      case TY_DBLE:
-        rtlRtn = RTE_dceilingv;
-        break;
-      default:
-        E74_ARG(pdsym, 0, NULL);
-        goto call_e74_arg;
-      }
-    } else {
-      switch (DTY(DDTG(dtype1))) {
-      case TY_REAL:
-        rtlRtn = RTE_floorv;
-        break;
-      case TY_DBLE:
-        rtlRtn = RTE_dfloorv;
-        break;
-      default:
-        E74_ARG(pdsym, 0, NULL);
-        goto call_e74_arg;
-      }
-    }
-
-    hpf_sym = sym_mkfunc_nodesc(mkRteRtnNm(rtlRtn), dtyper);
-    ELEMENTALP(hpf_sym, 1);
-    func_ast = mk_id(hpf_sym);
-    A_DTYPEP(func_ast, dtyper);
-
-    shaper = A_SHAPEG(
-        ARGT_ARG(argt, 0)); /* get shape of arg[0] is shape of retval */
-    if (shaper) {
-      dtyper = dtype_with_shape(dtyper, shaper);
-    }
-
-    ast = mk_func_node(A_INTR, func_ast, 1, argt);
-    A_OPTYPEP(ast, INTASTG(pdsym));
-    A_DTYPEP(ast, dtyper);
-
-    if (DTYPEG(hpf_sym) != dtype2) {
-      /* convert to type specified in KIND w/shape of arg[0] */
-      if (shaper) {
-        dtype2 = dtype_with_shape(dtype2, shaper);
-      }
-      ast = mk_convert(ast, dtype2);
-      dtyper = dtype2;
-    }
-
-    goto expr_val;
-
   case PD_exponent:
     if (count != 1) {
       E74_CNT(pdsym, count, 1, 1);
@@ -8555,9 +8507,9 @@ ref_pd(SST *stktop, ITEM *list)
         goto call_e74_arg;
       }
 
-      argt = mk_argt(4);
-
       dtype2 = DDTG(SST_DTYPEG(ARG_STK(2)));
+
+      argt = mk_argt(4);
 
       sem.arrdim.ndim = 1;
       sem.arrdim.ndefer = 0;
@@ -8735,6 +8687,60 @@ ref_pd(SST *stktop, ITEM *list)
     }
 
     break;
+
+  case PD_ceiling:
+  case PD_floor:
+    if (count < 1 || count > 2) {
+        E74_CNT(pdsym, count, 0, 2);
+        goto call_e74_cnt;
+    }
+    if (get_kwd_args(list, 2, KWDARGSTR(pdsym)))
+      goto exit_;
+
+    stkp = ARG_STK(0);
+    dtype1 = DDTG(SST_DTYPEG(stkp));
+    if (!DT_ISREAL(dtype1)) {
+      E74_ARG(pdsym, 0, NULL);
+      goto call_e74_arg;
+    }
+
+    dtyper = dtype1; /* initial result of call is type of argument */
+
+    /* for this case dtype2 is used for conversion; the actual floor/ceiling 
+     * calls we use return real, but the Fortran declaration returns int. 
+     * We need to calculate final type for conversion to correct int kind.
+     */
+
+    if ((stkp = ARG_STK(1))) { /* kind */
+      dtype2 = set_kind_result(stkp, DT_INT, TY_INT); 
+      if (!dtype2) {
+        E74_ARG(pdsym, 1, NULL);
+        goto call_e74_arg;
+      }
+    } else {
+      dtype2 = stb.user.dt_int;  /* default return type for floor/ceiling */
+    }
+
+    if (sem.dinit_data) {
+      gen_init_intrin_call(stktop, pdsym, count, dtype2, TRUE);
+      return 0;
+    }
+
+    /* If this is f90, leave the kind argument in. Otherwise issue
+     * a warning and leave it -- we'll get to it someday
+     */
+    (void)mkexpr(ARG_STK(0));
+    shaper = SST_SHAPEG(ARG_STK(0));
+    XFR_ARGAST(0);
+    argt_count = 1;
+    if (ARG_STK(1)) {
+      (void)mkexpr(ARG_STK(1));
+      argt_count = 2;
+      ARG_AST(1) = mk_cval1(target_kind(dtyper), DT_INT4);
+    }
+    if (shaper)
+      dtyper = get_array_dtype(1, dtyper);
+    goto gen_call;
 
   case PD_aint:
   case PD_anint:
@@ -10835,6 +10841,13 @@ expr_val:
   SST_DTYPEP(stktop, dtyper);
   SST_ASTP(stktop, ast);
   SST_SHAPEP(stktop, shaper);
+  /* Fortran floor/ceiling take real arguments and return integer values.
+   * But we want to use the same ILM/ILI as C/C++ (which return integral
+   * values in real format), so as to have common optimization and 
+   * vectorization techniques and routines. Thus do an explicit convert here.
+   */
+  if(pdtype == PD_floor || pdtype == PD_ceiling) 
+    cngtyp(stktop, dtype2); /* dtype2 from PD_floor/PD_ceiling case above */
   return 1;
 
 /*
@@ -10871,7 +10884,6 @@ const_isz_val:
   else
     SST_CVALP(stktop, A_SPTRG(ast));
   return iszval;
-
 const_real_val:
   EXPSTP(pdsym, 1); /* freeze predeclared */
   SST_IDP(stktop, S_CONST);
@@ -11079,6 +11091,7 @@ ref_pd_subr(SST *stktop, ITEM *list)
   int argt_count;
   SST *sp;
   SST *stkp;
+  int is_real2_arg_error = 0;
 
   /* Count the number of arguments to function */
   count = 0;

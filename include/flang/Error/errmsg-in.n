@@ -1,5 +1,5 @@
 .\"/*
-.\" * Copyright (c) 1994-2018, NVIDIA CORPORATION.  All rights reserved.
+.\" * Copyright (c) 1994-2019, NVIDIA CORPORATION.  All rights reserved.
 .\" *
 .\" * Licensed under the Apache License, Version 2.0 (the "License");
 .\" * you may not use this file except in compliance with the License.
@@ -1470,3 +1470,59 @@ Pragma operator errors.
 .MS S 1013 "Static Threadprivate variables are not supported - $"
 .MS S 1014 "Global Threadprivate variables are not supported - $"
 .MS S 1015 "Cannot access private intrinsic - $"
+.MS S 1042 "$ mask expression must be scalar"
+A DO CONCURRENT or FORALL mask expression must be scalar.
+.MS S 1043 "DO CONCURRENT $ references construct variable $"
+A DO CONCURRENT limit or step control expression may not reference an index
+name or LOCAL name.  A DO CONCURRENT mask expression may not reference a
+LOCAL name.
+.MS S 1044 "Invalid DO CONCURRENT locality spec variable $"
+A name in a DO CONCURRENT locality spec must be a valid variable name in the containing scope.
+.MS S 1045 "DO CONCURRENT index name $ may not appear in a locality spec"
+.MS S 1046 "Variable $ has multiple DO CONCURRENT locality spec references"
+.MS S 1047 "Multiple DO CONCURRENT DEFAULT(NONE) locality specs"
+.MS S 1048 "LOCAL/LOCAL_INIT variable $ $"
+A DO CONCURRENT LOCAL or LOCAL_INIT variable must not have the ALLOCATABLE,
+INTENT (IN), or OPTIONAL attribute, must not be of finalizable type, must
+not be a nonpointer polymorphic dummy argument, must not be a an assumed-size
+array, and must be permitted to appear in a variable definition context.
+.MS S 1049 "Variable $ is not in a DO CONCURRENT locality list"
+When DEFAULT(NONE) is specified for a DO CONCURRENT loop, construct variables and variables from containing scopes must appear in a locality spec.
+.MS S 1050 "$ DO CONCURRENT construct"
+A DO CONCURRENT construct may not contain a RETURN, EXIT, GOTO, or other branch
+out of the construct.  A CYCLE statement is permitted.
+.MS S 1051 "DO CONCURRENT polymorphic variable deallocation - $"
+A DO CONCURRENT construct must not contain a statement that might result in
+the deallocation of a polymorphic variable.
+.MS S 1052 "$ call in DO CONCURRENT construct"
+A DO CONCURRENT construct may not contain a call to IEEE_GET_FLAG,
+IEEE_SET_HALTING_MODE, or IEEE_GET_HALTING_MODE from intrinsic module
+IEEE_EXCEPTIONS.
+.MS S 1053 "Duplicate $ index name"
+A DO CONCURRENT or FORALL construct or statement may not specify an index name multiple times.
+.MS W 1054 "Duplicate subprogram prefix $ is used"
+.MS S 1055 "MODULE prefix cannot be inside an abstract interface"
+.MS S 1056 "MODULE prefix is only allowed for subprograms that were declared as separate module procedures"
+.MS S 1057 "Definition argument name $ does not match declaration argument name $"
+.MS S 1058 "The type of definition argument $ does not match its declaration type"
+.MS S 1059 "The definition of subprogram $ does not have the same number of arguments as its declaration"
+.MS S 1060 "The $ of the definition and declaration of subprogram $ must match"
+.MS S 1061 "The definition of function return type of $ does not match its declaration type"
+.MS S 1062 "LOCAL_INIT variable does not have an outside variable of the same name - $"
+A DO CONCURRENT variable with LOCAL_INIT locality must have a host variable of the same name.
+.MS S 1200 "OpenMP GPU - [$] is used, it is not implemented yet."
+.MS S 1201 "OpenMP GPU - [$] is used with [$], this usage is not implemented yet."
+.MS S 1202 "OpenMP GPU - [$] is used independently than [$], this usage is not implemented yet."
+.MS S 1203 "OpenMP GPU - Directive target exit data is used, map type [$] cannot be used. It should be one of 'from', 'release', or 'delete'"
+.MS S 1204 "OpenMP GPU - Directive target data is used, map type [$] cannot be used. It should be one of 'to', 'from', 'tofrom', 'alloc', 'release', or 'delete'"
+.MS S 1205 "OpenMP GPU - Directive target enter data is used, map type [$] cannot be used. It should be one of 'to', or 'alloc'"
+.MS W 1206 "OpenMP GPU - Using [map] clause is used with an array section for $ array is not supported, mapping will be done on entire array."
+.MS S 1207 "ERROR STOP stop-code requires either a character or integer expression."
+.MS S 1208 "QUIET requires a logical expression."
+.MS S 1209 "ERROR STOP stop-code integer expression must be an integer of default kind."
+.MS S 1210 "Parent module $ must declare a separate module procedure."
+.MS S 1211 "Submodule's ancestor module $ must be a nonintrinsic module."
+.MS S 1212 "$ was previously declared to be a module procedure."
+.MS S 1213 "OpenACC $ data clause may not follow a device_type clause."
+.MS S 1214 "PGI Accelerator $ data clause may not follow a device_type clause."
+.MS S 1215 "OpenACC data clause expected after $."

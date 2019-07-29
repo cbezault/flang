@@ -1,5 +1,5 @@
 /* 
- * Copyright (c) 2002-2018, NVIDIA CORPORATION.  All rights reserved.
+ * Copyright (c) 2002-2019, NVIDIA CORPORATION.  All rights reserved.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -65,36 +65,90 @@ __mth_i_dint (double xx)
 #endif
 
 #include "directives.h"
+/* Use is_<PROC-FEATURE>() functions from libpgc */
+#include "x86id.h"
 
 	.text
 	ALN_FUNC
 	.globl	ENT(__mth_i_dint)
 ENT(__mth_i_dint):
-	RZ_PUSH
-	movsd	%xmm0, RZ_OFF(8)(%rsp)
-	movq	RZ_OFF(8)(%rsp), %rcx
-	leaq	(%rcx,%rcx), %rax
-	movq	%rcx, %rdx
-	shrq	$53, %rax
-	subq	$1023, %rax
-	js	.L5
-	cmpq	$51, %rax
-	jg	.L3
-	movl	$52, %ecx
-	subl	%eax, %ecx
-	movq	$-1, %rax
-	salq	%cl, %rax
-.L6:
-	andq	%rax, %rdx
-.L3:
-	movq	%rdx, RZ_OFF(8)(%rsp)
-	movlpd	RZ_OFF(8)(%rsp), %xmm2
-	movsd	%xmm2, %xmm0
-	RZ_POP
+/*
+ *	Assembly based on Clang's translation of:
+ *		xexp = GET_EXP(ux) - EXPBIAS;
+ *		mask = fpi.i;
+ *		mask = xexp < MANTBITS ? (-1ULL) << (MANTBITS - xexp) : mask;
+ *		mask = xexp < 0 ? 0x8000000000000000 : mask;
+ *		fpi.i &= mask;
+ *
+ *	Volatile registers common to both System V and Windows ABI:
+ *	%rax, %rcx, %rdx, %r8, %r9
+ */
+ 
+#if  defined(TARGET_WIN_X8664)
+	movl	ENT(X86IDFN(hw_features))(%rip), %eax
+#else
+	movq	ENT(X86IDFN(hw_features))@GOTPCREL(%rip), %rax
+	movl	(%rax), %eax
+#endif
+
+1:
+	testl	$HW_AVX, %eax
+	jz	2f		// Maybe SSE4.1?
+
+/*
+ *	AVX version.
+ */
+	vroundsd $3, %xmm0, %xmm0, %xmm0
 	ret
-	ALN_FUNC
-.L5:
-	movabsq	$-9223372036854775808, %rax
-	jmp	.L6
+
+/*
+ *	SSE4.1 version.
+ */
+2:
+	testl	$HW_SSE4, %eax
+	jz	3f		// Maybe prior to SSE4.1
+	roundsd	$3, %xmm0, %xmm0
+	ret
+
+
+/*
+ *	SSE version.
+ *	Entry:	(%eax) = X86IDFN(hw_features)
+ *		(%xmm0) = xx (argument)
+ */
+3:
+	testl	$HW_SSE, %eax
+	jz	4f		// Possibly X86IDFN(hw_features) undefined
+	movq	%xmm0, %rdx
+	movq	%rdx, %rax
+	shrq	$52, %rdx
+	andl	$2047, %edx
+	movl	$1075, %ecx
+	subl	%edx, %ecx
+	movq	$-1, %r8
+	shlq	%cl, %r8
+	cmpq	$1075, %rdx
+	cmovaeq	%rax, %r8
+	cmpq	$1023, %rdx
+	movabsq	$-9223372036854775808, %rcx
+	cmovaeq	%r8, %rcx
+	andq	%rax, %rcx
+	movq	%rcx, %xmm0
+	retq
+
+/*
+ *	X86IDFN(init_hw_features) is most likely uninitialized.
+ *	(%eax) = current value of X86IDFN(init_hw_features).
+ */
+4:
+	subq	$8, %rsp
+	movsd	%xmm0, (%rsp)	// Save %xmm0 - do not use vmovsd
+	movl	%eax, I1W	// Input to X86IDFN(init_hw_feature)()
+	CALL	(ENT(X86IDFN(init_hw_features)))
+//	(%eax) = hw_features
+	movsd	(%rsp), %xmm0	// restore %xmm0 - do not use vmovsd
+	addq	$8, %rsp
+	jmp	1b
+
 	ELF_FUNC(__mth_i_dint)
 	ELF_SIZE(__mth_i_dint)

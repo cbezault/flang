@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1993-2018, NVIDIA CORPORATION.  All rights reserved.
+ * Copyright (c) 1993-2019, NVIDIA CORPORATION.  All rights reserved.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -549,7 +549,7 @@ typedef struct {
   int doif_depth;     /* current DO-IF nesting level */
   EQVV *eqvlist;      /* pointer to head of equivalence list */
   int flabels;        /* pointer to list of ftn ref'd labels */
-  int nml;            /* pointer to list of namelist symbols */
+  SPTR nml;           /* pointer to list of namelist symbols */
   int funcval;        /* pointer to variable for function ret val */
   int pgphase;        /* statement type seen so far:
                        *
@@ -701,7 +701,7 @@ extern SEM sem;
  * NTYPE - number of basic types; this must include the NCHARACTER
  * type even though it may not be an available feature.
  */
-#define NTYPE 19
+#define NTYPE 21
 
 #define NOPC 14
 

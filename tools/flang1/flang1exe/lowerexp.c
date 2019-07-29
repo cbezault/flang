@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1997-2018, NVIDIA CORPORATION.  All rights reserved.
+ * Copyright (c) 1997-2019, NVIDIA CORPORATION.  All rights reserved.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -2296,6 +2296,8 @@ lower_function(int ast)
 /*                       prefix:  J    K                                   */
 #define in_J_K 0x0530000
 /*                       prefix:  none      A      D                       */
+#define in_R_D 0x0003300
+/*                       prefix:            R      D                       */
 #define in_r_D 0x0001300
 /*                       prefix:            R      D       C     CD        */
 #define in_R_D_C_CD 0x0001333
@@ -2626,6 +2628,9 @@ intrinsic_arg_dtype(int intr, int ast, int args, int nargs)
   case I_ANINT:
   case I_DNINT:
 
+  case I_CEILING:
+  case I_FLOOR:
+
   case I_CONJG:
   case I_DCONJG:
 
@@ -2873,8 +2878,6 @@ intrinsic_arg_dtype(int intr, int ast, int args, int nargs)
   case I_SIZE:
   case I_LBOUND:
   case I_UBOUND:
-  case I_CEILING:
-  case I_FLOOR:
   case I_MODULO:
   case I_EXPONENT:
   case I_FRACTION:
@@ -2923,6 +2926,7 @@ intrinsic_arg_dtype(int intr, int ast, int args, int nargs)
   case I_ANY:
   case I_COUNT:
   case I_DOT_PRODUCT:
+  case I_NORM2:
   case I_MATMUL:
   case I_MATMUL_TRANSPOSE:
   case I_MAXLOC:
@@ -3023,7 +3027,7 @@ f90_value_function_I2(char *name, int dtype, int args, int nargs)
     int ast = ARGT_ARG(args, i);
     ilm = lower_ilm(ast);
     if (i == 1) {
-      ilm = lower_conv_ilm(ast, ilm, DT_INT, A_NDTYPEG(ast));
+      ilm = lower_conv_ilm(ast, ilm, A_NDTYPEG(ast), DT_INT);
     }
     ilm = plower("oi", "DPVAL", ilm);
     intrinsic_args[i] = ilm;
@@ -3071,6 +3075,7 @@ lower_intrinsic(int ast)
   nargs = A_ARGCNTG(ast);
   args = A_ARGSG(ast);
   intr = A_OPTYPEG(ast);
+
   if (intr != NEW_INTRIN) {
     symfunc = EXTSYMG(intast_sym[intr]);
   } else {
@@ -3108,6 +3113,8 @@ lower_intrinsic(int ast)
   case I_DINT:
   case I_ANINT:
   case I_DNINT:
+  case I_FLOOR:
+  case I_CEILING:
     nargs = 1;
   }
   if (argdtype >= 0) {
@@ -3745,6 +3752,15 @@ lower_intrinsic(int ast)
     }
     break;
 
+  case I_CEILING:
+    dtype = A_NDTYPEG(ast);
+    ilm = intrin_name("CEIL", ast, in_R_D);
+    break;
+  case I_FLOOR:
+    dtype = A_NDTYPEG(ast);
+    ilm = intrin_name("FLOOR", ast, in_R_D);
+    break;
+
   case I_AINT:
   case I_DINT:
     dtype = A_NDTYPEG(ast);
@@ -4058,21 +4074,6 @@ lower_intrinsic(int ast)
     plower("C", symfunc);
     A_ILMP(ast, ilm);
     return ilm;
-
-  case I_CEILING:
-  case I_FLOOR:
-    /*
-     * see semfunc.c for the spelling of the function name.
-     */
-    dtype = A_NDTYPEG(ast);
-    symfunc = A_SPTRG(A_LOPG(ast));
-    for (i = 0; i < nargs; ++i) {
-      ilm = lower_ilm(ARGT_ARG(args, i));
-      ilm = plower("oi", "DPVAL", ilm);
-      intrinsic_args[i] = ilm;
-    }
-    ilm = plower("onsm", ltyped("FUNC", dtype), nargs, symfunc);
-    break;
 
   case I_MODULO:
     /*
@@ -4484,7 +4485,7 @@ lower_intrinsic(int ast)
   return ilm;
 } /* lower_intrinsic */
 
-#if AST_MAX != 159
+#if AST_MAX != 165
 #error "Need to edit lowerexp.c to add or delete A_... AST types"
 #endif
 
@@ -4516,13 +4517,22 @@ lower_ast(int ast, int *unused)
       break;
     case OP_LAND:
     case OP_SCAND:
-      ilm = lower_bin_logical(ast, "LAND");
+      if (XBIT(125, 0x8))
+        ilm = lower_bin_logical(ast, "UXLAND");
+      else
+        ilm = lower_bin_logical(ast, "LAND");
       break;
     case OP_LEQV:
-      ilm = lower_bin_logical(ast, "LEQV");
+      if (XBIT(125, 0x8))
+        ilm = lower_bin_logical(ast, "UXLEQV");
+      else
+        ilm = lower_bin_logical(ast, "LEQV");
       break;
     case OP_LNEQV:
-      ilm = lower_bin_logical(ast, "XOR");
+      if (XBIT(125, 0x8))
+        ilm = lower_bin_logical(ast, "UXLNEQV");
+      else
+        ilm = lower_bin_logical(ast, "XOR");
       break;
     case OP_LOR:
       ilm = lower_bin_logical(ast, "LOR");
@@ -5297,7 +5307,10 @@ lower_ast(int ast, int *unused)
       base = ilm;
       break;
     case OP_LNOT:
-      ilm = lower_un_logical(ast, "LNOT");
+      if (XBIT(125, 0x8))
+        ilm = lower_un_logical(ast, "UXLNOT");
+      else
+        ilm = lower_un_logical(ast, "LNOT");
       base = ilm;
       break;
     case OP_ADD:
@@ -5602,7 +5615,10 @@ lower_logical(int ast, iflabeltype *iflabp)
     case OP_LEQV:
       lower_expression(A_LOPG(ast));
       lower_expression(A_ROPG(ast));
-      ilm = lower_bin_logical(ast, "LEQV");
+      if (XBIT(125, 0x8))
+        ilm = lower_bin_logical(ast, "UXLEQV");
+      else
+        ilm = lower_bin_logical(ast, "LEQV");
       if (iflabp->thenlabel) {
         plower("oiS", "BRT", ilm, iflabp->thenlabel);
       } else {
@@ -5612,7 +5628,10 @@ lower_logical(int ast, iflabeltype *iflabp)
     case OP_LNEQV:
       lower_expression(A_LOPG(ast));
       lower_expression(A_ROPG(ast));
-      ilm = lower_bin_logical(ast, "LNEQV");
+      if (XBIT(125, 0x8))
+        ilm = lower_bin_logical(ast, "UXLNEQV");
+      else
+        ilm = lower_bin_logical(ast, "LNEQV");
       if (iflabp->thenlabel) {
         plower("oiS", "BRT", ilm, iflabp->thenlabel);
       } else {

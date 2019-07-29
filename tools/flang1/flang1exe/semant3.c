@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1997-2018, NVIDIA CORPORATION.  All rights reserved.
+ * Copyright (c) 1997-2019, NVIDIA CORPORATION.  All rights reserved.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -71,7 +71,6 @@ static void end_association(int sptr);
 static int get_sst_named_whole_variable(SST *rhs);
 static int get_derived_type(SST *, LOGICAL);
 
-#define OPT_OMP_ATOMIC !XBIT(69, 0x1000)
 #define IN_OPENMP_ATOMIC (sem.mpaccatomic.ast && !(sem.mpaccatomic.is_acc))
 
 /** \brief semantic actions - part 3.
@@ -98,7 +97,7 @@ semant3(int rednum, SST *top)
   int dum;
   SWEL *swel;
   INT val[2];
-  int ast, ast1, ast2, lop;
+  int ast, ast1, ast2, ast3, lop;
   int astlab;
   int astli;
   ACL *aclp;
@@ -113,9 +112,7 @@ semant3(int rednum, SST *top)
   int o_ast;
   int mold_or_src;
   FtnRtlEnum rtlRtn;
-
   TYPE_LIST *types, *prev, *curr;
-
   switch (rednum) {
 
   /* ------------------------------------------------------------------ */
@@ -277,6 +274,11 @@ semant3(int rednum, SST *top)
    *	<simple stmt> ::= <kernel stmt>
    */
   case SIMPLE_STMT22:
+  /*  fall thru  */
+  /*
+   *	<simple stmt> ::= <error stop stmt>
+   */
+  case SIMPLE_STMT23:
     /*  fall thru  */
 
   executable_shared:
@@ -557,7 +559,7 @@ semant3(int rednum, SST *top)
         }
         gen_finalization_for_sym(sptr1, std, parent);
       }
-      if (OPT_OMP_ATOMIC && sem.mpaccatomic.seen && !sem.mpaccatomic.is_acc) {
+      if (use_opt_atomic(sem.doif_depth) && sem.mpaccatomic.seen && !sem.mpaccatomic.is_acc) {
         sem.mpaccatomic.accassignc++;
         ast = do_openmp_atomics(RHS(2), RHS(5));
         if (ast) {
@@ -1266,6 +1268,13 @@ semant3(int rednum, SST *top)
     rhstop = 2;
     SST_SYMP(RHS(2), getsymbol("loc"));
   cvar_ref_component_shared:
+    ast = A_ORIG_EXPRG(SST_ASTG(RHS(1)));
+    if (ast != 0) {
+      /* The <var primary> is part of a procedure call, not a polymorphic
+       * array expression. So, we restore the original expression.
+       */
+      SST_ASTP(RHS(1), ast);
+    }
     itemp = ITEM_END;
     if (SST_IDG(RHS(1)) == S_IDENT || SST_IDG(RHS(1)) == S_DERIVED)
       sptr = SST_SYMG(RHS(1));
@@ -1375,8 +1384,11 @@ semant3(int rednum, SST *top)
       sptr = SST_SYMG(RHS(1));
       if (!is_procedure_ptr(sptr)) {
         subr_call(RHS(1), itemp);
-      } else
+      } else {
+        if (sem.parallel)
+          (void)mkarg(RHS(1), &dum);
         ptrsubr_call(RHS(1), itemp);
+      }
     } else {
       ptrsubr_call(RHS(1), itemp);
     }
@@ -1567,6 +1579,95 @@ semant3(int rednum, SST *top)
     add_arg(ast1);
     add_arg(ast2);
     SST_ASTP(LHS, ast);
+    break;
+
+  /* ------------------------------------------------------------------ */
+  /*
+   *    <quiet clause> ::= QUIET = <expression>
+   */
+  case QUIET_CLAUSE1:
+    if (DTY(SST_DTYPEG(RHS(3))) != TY_LOG) {
+      error(1208, ERR_Severe, gbl.lineno, NULL, NULL);
+    }
+    break;
+
+  /* ------------------------------------------------------------------ */
+  /*
+   *    <error stop stmt> ::= ERRORSTOP <error stop pause> | 
+   */ 
+  case ERROR_STOP_STMT1:
+    if (not_in_forall("ERRORSTOP"))
+      break;
+
+    ast3 =
+        mk_unop(OP_REF, (DTY(DT_INT) == TY_INT8) ? astb.k0 : astb.i0, DT_PTR);
+    goto errorstop_shared;
+  /*
+   *    <error stop stmt> ::= ERRORSTOP <error stop pause> , <quiet clause>
+   */
+  case ERROR_STOP_STMT2:
+    if (not_in_forall("ERRORSTOP"))
+      break;
+   
+    check_do_term();
+    ast3 = SST_ASTG(RHS(6));
+
+errorstop_shared:    
+    ast1 = SST_TMPG(RHS(2)); 
+    ast2 = SST_ASTG(RHS(2));
+   
+    rtlRtn = DTY(A_DTYPEG(ast2)) == TY_CHAR ? RTE_errorstop08a_char :
+                                              RTE_errorstop08a_int;
+    sptr = sym_mkfunc(mkRteRtnNm(rtlRtn), DT_NONE); 
+    NODESCP(sptr, 1);
+    ast = begin_call(A_CALL, sptr, 2);
+
+    if (DTY(A_DTYPEG(ast2)) == TY_CHAR) {
+      add_arg(ast3); // QUIET= value
+      add_arg(ast2); // output string / integer stop-code value
+    } else {
+      add_arg(ast1); // stop-code integer value
+      add_arg(ast3); // QUIET= value
+    }
+    
+    SST_ASTP(LHS, ast);
+    break;
+  /* ------------------------------------------------------------------ */
+  /*
+   *    <error stop pause> ::=     |
+   */
+  case ERROR_STOP_PAUSE1:
+    SST_ASTP(LHS, astb.ptr0c); /* null pointer */
+    ast1 = 
+        mk_unop(OP_REF, (DTY(DT_INT) == TY_INT8) ? astb.k1 : astb.i1, DT_PTR);
+    ast2 = astb.ptr0c;
+    SST_TMPP(LHS, ast1);
+    SST_ASTP(LHS, ast2);
+    break;
+  /*
+   *    <error stop pause> ::= <expression>
+   */
+  case ERROR_STOP_PAUSE2:
+    ast1 =
+        mk_unop(OP_REF, (DTY(DT_INT) == TY_INT8) ? astb.k1 : astb.i1, DT_PTR);
+    if (DTY(SST_DTYPEG(RHS(1))) == TY_CHAR) {
+      (void)mkarg(RHS(1), &dum);
+      ast2 = SST_ASTG(RHS(1));
+    } else if (DT_ISINT(SST_DTYPEG(RHS(1)))) {
+      if ((DTY(SST_DTYPEG(RHS(1))) == TY_INT && !XBIT(124, 0x10)) ||
+          (DTY(SST_DTYPEG(RHS(1))) == TY_INT8 && XBIT(124, 0x10))) {
+        (void)mkarg(RHS(1), &dum);
+        ast1 = ast2 = SST_ASTG(RHS(1));
+      } else {
+        error(1209, ERR_Severe, gbl.lineno, NULL, NULL);
+        break;
+      }
+    } else {
+      error(1207, ERR_Severe, gbl.lineno, NULL, NULL);
+      break;
+    }
+    SST_TMPP(LHS, ast1);
+    SST_ASTP(LHS, ast2); 
     break;
 
   /* ------------------------------------------------------------------
@@ -2912,6 +3013,7 @@ semant3(int rednum, SST *top)
    *	                   <etmp e3> |
    */
   case LOOP_CONTROL1:
+    sem.index_sym_to_pop = SPTR_NULL;
     sptr = mklvalue(RHS(2), 0);
     dtype = DTYPEG(sptr);
     if (!DT_ISREAL(dtype) && !DT_ISINT(dtype)) {
@@ -3000,8 +3102,19 @@ semant3(int rednum, SST *top)
       ast = do_distbegin(doinfo, do_label, named_construct);
       SST_ASTP(LHS, ast);
       do_label = 0;
+#ifdef OMP_OFFLOAD_LLVM
+        if(DI_ID(sem.doif_depth-3) == DI_TARGTEAMSDISTPARDO) {
+          int dovar = mk_id(doinfo->index_var);
+          ast1 = DI_BTARGET(3);
+          ast2 = mk_stmt(A_MP_TARGETLOOPTRIPCOUNT, 0);
+          A_LOOPTRIPCOUNTP(ast1, ast2);
+          A_DOVARP(ast2, dovar);
+          A_M1P(ast2, doinfo->init_expr);
+          A_M2P(ast2, doinfo->limit_expr);
+          A_M3P(ast2, doinfo->step_expr);
+        }
+#endif
       break;
-
     } else if (sem.expect_simd_do) {
       /* Note: set sem.expect_simd_do = FALSE after calling to
        * do_lastvalbecause do_lastval check this flag.
@@ -3026,6 +3139,7 @@ semant3(int rednum, SST *top)
       std = add_stmt(ast);
     if (rednum == LOOP_CONTROL1) {
       NEED_DOIF(doif, DI_DO);
+      DI_DO_POPINDEX(doif) = sem.index_sym_to_pop;
     } else {
       NEED_DOIF(doif, DI_DOCONCURRENT);
       symi = add_symitem(sptr, 0);
@@ -3033,6 +3147,22 @@ semant3(int rednum, SST *top)
           DI_CONC_SYMAVL(doif-1) != sem.doconcurrent_symavl) {
         // First (outermost) control var=triplet.
         DI_CONC_SYMAVL(doif) = sem.doconcurrent_symavl;
+        DI_CONC_BLOCK_SYM(doif) = sptr =
+          getccsym('b', sem.blksymnum++, ST_BLOCK);
+        CCSYMP(sptr, true);
+        STARTLINEP(sptr, gbl.lineno);
+        // If the do concurrent loop is nested in another do concurrent loop,
+        // the outer loop is the parent of the block sym.  Otherwise, the
+        // containing routine is the parent.
+        if (DI_NEST(doif-1) & DI_B(DI_DOCONCURRENT)) {
+          for (i = doif-1; i > 0; --i)
+            if (DI_ID(i) == DI_DOCONCURRENT) {
+              ENCLFUNCP(sptr, DI_CONC_BLOCK_SYM(i));
+              break;
+            }
+        } else {
+          ENCLFUNCP(sptr, gbl.currsub);
+        }
         DI_CONC_SYMS(doif) = symi;
       } else {
         // Second or subsequent control var=triplet.
@@ -3044,6 +3174,8 @@ semant3(int rednum, SST *top)
       }
       DI_CONC_COUNT(doif)++;
       DI_CONC_LAST_SYM(doif) = symi;
+      if (ast)
+        STD_BLKSYM(std) = DI_CONC_BLOCK_SYM(doif);
     }
     DI_DO_LABEL(doif) = do_label;
     DI_DO_AST(doif) = ast;
@@ -3068,7 +3200,7 @@ semant3(int rednum, SST *top)
   case LOOP_CONTROL3:
     // Set the DO CONCURRENT body marker to the last header, mask, or
     // locality assignment std.  Shift to its successor before use.
-    DI_CONC_BODY_STD(sem.doif_depth) = STD_PREV(0);
+    DI_CONC_BODY_STD(sem.doif_depth) = STD_LAST;
     sem.doconcurrent_symavl = SPTR_NULL;
     sem.doconcurrent_dtype = DT_NONE;
     SST_ASTP(LHS, 0);
@@ -3117,8 +3249,7 @@ semant3(int rednum, SST *top)
     doif = sem.doif_depth;
     switch (DI_ID(doif)) {
     case DI_DOCONCURRENT:
-      // <concurrent list> processing was done upstream; process mask here.
-      SST_ASTP(LHS, 0);
+      // <concurrent list> processing was done upstream; process mask.
       if (ast1) {
         if (A_SHAPEG(ast1)) {
           error(1042, ERR_Severe, gbl.lineno, "DO CONCURRENT", CNULL);
@@ -3128,6 +3259,7 @@ semant3(int rednum, SST *top)
           DI_CONC_MASK_STD(doif) = add_stmt(ast);
         }
       }
+      SST_ASTP(LHS, 0);
       break;
     case DI_FORALL:
       // Generate a FORALL ast.
@@ -3377,14 +3509,22 @@ semant3(int rednum, SST *top)
       }
       break;
     }
+    DCLCHK(sptr);
     switch (DI_CONC_KIND(doif)) {
-    case TK_LOCAL:
     case TK_LOCAL_INIT:
+      if (sptr >= DI_CONC_SYMAVL(doif)) {
+        error(1062, ERR_Severe, gbl.lineno, SYMNAME(sptr), CNULL);
+        DI_CONC_ERROR_SYMS(doif) = add_symitem(sptr, DI_CONC_ERROR_SYMS(doif));
+        break;
+      }
+      // fall through
+    case TK_LOCAL:
       if (sptr < DI_CONC_SYMAVL(doif)) {
         // sptr is external to the loop; get a construct instance.
         if (STYPEG(sptr) == ST_PD) {
+          int dcld = DCLDG(sptr);
           sptr = insert_sym(sptr);
-          DCLDP(sptr, 1);
+          DCLDP(sptr, dcld);
         } else {
           sptr = insert_dup_sym(sptr);
         }
@@ -3640,8 +3780,9 @@ semant3(int rednum, SST *top)
          * allocation production below. We later generate the type
          * assignment in rewrite_calls of func.c
          */
-        int dty;
-        int dest;
+        DTYPE dty, base;
+        SPTR dest, tmp, sdsc;
+        int arg0, arg1;
         switch (A_TYPEG(itemp->ast)) {
         case A_ID:
         case A_LABEL:
@@ -3657,6 +3798,7 @@ semant3(int rednum, SST *top)
             ADSC *ad;
             dty = dup_array_dtype(dty);
             DTY(dty + 1) = dtype;
+            base = dtype;
             dtype = dty;
             ad = AD_DPTR(dty);
             if (AD_DEFER(ad)) {
@@ -3666,6 +3808,8 @@ semant3(int rednum, SST *top)
                */
               AD_DEFER(ad) = 0;
             }
+          } else {
+            base = dtype;
           }
         }
         ast = rewrite_ast_with_new_dtype(ast, dtype);
@@ -3689,6 +3833,41 @@ semant3(int rednum, SST *top)
             assn = mk_assn_stmt(dast, val, DT_INT);
             add_stmt(assn);
           }
+        } else if (CLASSG(dest)) {
+          /* For typed allocation of a normal polymorphic object, make sure
+           * we allocate the size of the specified type by creating a
+           * temporary object of that type and use sourced allocation
+           * to ensure proper size. Sourced allocation is accomplished by 
+           * storing the temp in the A_ALLOC ast's A_START field below.
+           */
+          tmp = getcctmp_sc('d', sem.dtemps++, ST_VAR, base, sem.sc);
+          A_STARTP(ast, mk_id(tmp)); 
+
+          /* We also need to set the type field of the ast's type 
+           * descriptor. arg0 is the destination descriptor argument for the
+           * set_type call.
+           */
+          sdsc = STYPEG(dest) == ST_MEMBER ? get_member_descriptor(dest) : 0;
+          if (sdsc > NOSYM) {
+            arg0 = check_member(itemp->ast, mk_id(sdsc));
+          } else {
+            arg0 = mk_id(get_type_descr_arg(gbl.currsub, dest));
+          }
+
+          /* source descriptor argument for set_type call */
+          if (DTY(DDTG(base)) == TY_DERIVED) {
+            /* derived type uses a regular type descriptor */
+            arg1 = mk_id(get_static_type_descriptor(tmp));
+          } else {
+            /* non-derived type uses its runtime intrinsic type code */
+            int type_code = dtype_to_arg(DTY(DDTG(base)));
+            arg1 = mk_cval1(type_code, DT_INT);
+            arg1 = mk_unop(OP_VAL, arg1, DT_INT);
+          }
+
+          /* generate set_type call */
+          ast = mk_set_type_call(arg0, arg1, DTY(DDTG(base)) != TY_DERIVED); 
+          std = add_stmt(ast);
         }
       }
       if (!alloc_error) {
@@ -3977,8 +4156,23 @@ semant3(int rednum, SST *top)
                   } else if (DTY(src_dtype) == TY_ARRAY ||
                              (SDSCG(dest) && DTY(src_dtype) == TY_CHAR &&
                               is_unl_poly(dest))) {
-                    src_sdsc_ast = mk_cval1(0, DT_INT);
-                    src_sdsc_ast = mk_unop(OP_VAL, src_sdsc_ast, DT_INT);
+                      if (!SDSCG(src)) {
+                        src_sdsc_ast = mk_cval1(0, DT_INT);
+                        src_sdsc_ast = mk_unop(OP_VAL, src_sdsc_ast, DT_INT);
+                      } else {
+                        if (STYPEG(src) == ST_MEMBER) {
+                          sdsc_mem = get_member_descriptor(src);
+                          if (sdsc_mem <= NOSYM) {
+                            sdsc_mem = SDSCG(src);
+                          }
+                        } else {
+                          sdsc_mem = SDSCG(src);
+                        }
+                        src_sdsc_ast = STYPEG(sdsc_mem) == ST_MEMBER ? 
+                                       check_member(alloc_source,
+                                                    mk_id(sdsc_mem)) : 
+                                       mk_id(sdsc_mem);
+                    }
                   } else if (A_TYPEG(alloc_source) == A_FUNC) {
                     /* FS#21130: get descriptor for return variable */
                     int func, rtn;
@@ -4104,8 +4298,74 @@ semant3(int rednum, SST *top)
                 add_stmt(ast);
               }
             }
-          }
-        }
+          } else if (CLASSG(dest) || DTY(DDTG(src_dtype)) == TY_DERIVED) {
+            DTYPE src_dty = DDTG(src_dtype);
+            SPTR arg0, arg1;
+            int std;
+            int dtype_arg_ast;
+            SPTR sdsc;
+            bool intrin_type = false;
+           
+            /* Special cases for mold= (i.e., polymorphic allocatable or 
+             * derived type allocatable). 
+             *
+             * For mold=, we just set up shape, type, and type parameters of
+             * of expression without copying the value.
+             * If destination is polymorphic or a derived typed object,
+             * set up its type descriptor. If it's a derived typed object,
+             * we also need to initialize values that are default
+             * initialized.
+             */
+
+            sdsc = STYPEG(dest) == ST_MEMBER ? get_member_descriptor(dest) : 0;
+            if (sdsc > NOSYM) {
+              arg0 = check_member(itemp->ast, mk_id(sdsc));
+            } else {
+              arg0 = mk_id(get_type_descr_arg(gbl.currsub, dest));
+            }
+	   
+            sdsc = STYPEG(src) == ST_MEMBER ? get_member_descriptor(src) : 0; 
+            if (sdsc > NOSYM && DTY(src_dty) == TY_DERIVED) {
+              arg1 = check_member(alloc_source, mk_id(sdsc));
+            } else if (DTY(src_dty) != TY_DERIVED && 
+                       (dtype_arg_ast = dtype_to_arg(src_dty)) > 0) {
+              arg1 = mk_unop(OP_VAL, mk_cval1(dtype_arg_ast, DT_INT), DT_INT);
+              intrin_type = true;
+            } else {
+              arg1 = mk_id(get_type_descr_arg(gbl.currsub, src));
+            }
+	    
+            ast = mk_set_type_call(arg0, arg1, intrin_type); 
+            std = add_stmt(ast);
+            
+            if (DTY(src_dty) == TY_DERIVED) {
+              /* initialize any default initialized values, type
+               * parameters, etc. using the "init_from_desc" runtime routine. 
+               */
+              int func_ast = mk_id(sym_mkfunc_nodesc(mkRteRtnNm(
+                                   RTE_init_from_desc), DT_NONE));
+              int argt = mk_argt(3);
+
+              ast = mk_func_node(A_CALL, func_ast, 3, argt);
+
+              /* 1st arg is destination's address. Must be the base address */
+              ARGT_ARG(argt, 0) = A_TYPEG(itemp->ast) == A_SUBSCR ?
+                                  A_LOPG(itemp->ast) : itemp->ast;
+
+              /* 2nd arg is destination's descriptor */
+              ARGT_ARG(argt, 1) = arg0;
+
+              /* 3rd arg takes the rank if we have a traditional descriptor, 
+               * otherwise, pass in 0 */
+              ARGT_ARG(argt, 2) =
+              mk_unop(OP_VAL, mk_cval(SDSCG(dest) && !CLASSG(SDSCG(dest)) ?
+                      rank_of_sym(dest) : 0, DT_INT4), DT_INT4);
+              
+              add_stmt_after(ast, std);
+            }
+         }
+       }  
+       
 
         if (!alloc_source && has_type_parameter(A_DTYPEG(A_SRCG(ast)))) {
           /* Handle type parameters */

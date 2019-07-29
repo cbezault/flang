@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2016-2018, NVIDIA CORPORATION.  All rights reserved.
+ * Copyright (c) 2016-2019, NVIDIA CORPORATION.  All rights reserved.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -96,6 +96,8 @@ typedef enum {
   RTE_conformable_dnv,
   RTE_conformable_ndv,
   RTE_conformable_nnv,
+  RTE_contigchk,
+  RTE_contigerror,
   RTE_copy_f77_argl,
   RTE_copy_f77_argsl,
   RTE_copy_f90_argl,
@@ -117,6 +119,8 @@ typedef enum {
   RTE_dfloorv,
   RTE_dmodulev,
   RTE_dmodulov,
+  RTE_errorstop08a_char,
+  RTE_errorstop08a_int,
   RTE_exit,
   RTE_expon,
   RTE_expond,
@@ -277,6 +281,10 @@ typedef enum {
   RTE_poly_asn,
   RTE_poly_asn_dest_intrin,
   RTE_poly_asn_src_intrin,
+  RTE_poly_element_addr,
+  RTE_poly_element_addr1,
+  RTE_poly_element_addr2,
+  RTE_poly_element_addr3,
   RTE_present,
   RTE_present_ptr,
   RTE_presentc,
@@ -508,13 +516,19 @@ typedef enum {
   RTE_localize_index,
   RTE_matmul,
   RTE_maxloc,
+  RTE_maxloc_b,
   RTE_maxlocs,
+  RTE_maxlocs_b,
+  RTE_norm2,
+  RTE_norm2_nodim,
   RTE_maxval,
   RTE_maxval_scatterx,
   RTE_maxvals,
   RTE_member_base,
   RTE_minloc,
+  RTE_minloc_b,
   RTE_minlocs,
+  RTE_minlocs_b,
   RTE_minval,
   RTE_minval_scatterx,
   RTE_minvals,

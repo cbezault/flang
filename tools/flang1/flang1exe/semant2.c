@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1994-2018, NVIDIA CORPORATION.  All rights reserved.
+ * Copyright (c) 1994-2019, NVIDIA CORPORATION.  All rights reserved.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -94,6 +94,7 @@ semant2(int rednum, SST *top)
    *      <expression> ::= <primary>   |
    */
   case EXPRESSION1:
+    sem.parsing_operator = false;
     break;
   /*
    *      <expression> ::= <addition>  |
@@ -233,7 +234,7 @@ semant2(int rednum, SST *top)
     }
     break;
   /*
-   *	<primary> ::= '(/' <ac spec> '/)' |
+   *	<primary> ::= <ac beg> <ac spec> <ac end> |
    */
   case PRIMARY5:
     *LHS = *RHS(2);
@@ -245,6 +246,21 @@ semant2(int rednum, SST *top)
   case PRIMARY6:
     SST_PARENP(LHS, 0);
     break;
+  /* ------------------------------------------------------------------ */
+  /*
+   *    <ac beg> ::= '(/'
+   */
+  case AC_BEG1:
+    sem.in_array_const = true;
+    break;
+  /* ------------------------------------------------------------------ */
+  /*
+   *    <ac end> ::= '/)'
+   */
+  case AC_END1:
+    sem.in_array_const = false;
+    break;
+
   /* ------------------------------------------------------------------ */
   /*
    *	<elp> ::= (
@@ -1288,8 +1304,15 @@ semant2(int rednum, SST *top)
     } else if (!sem.generic_tbp) {
       char *name = SYMNAME(SST_SYMG(RHS(3)));
       int sym = findByNameStypeScope(name, ST_OPERATOR, 0);
-      if (sym && CLASSG(sym) && IS_TBP(sym)) {
+      if (sym > NOSYM && CLASSG(sym) && IS_TBP(sym)) {
         sem.generic_tbp = sym;
+        break;
+      } else if (sym > NOSYM || sem.parsing_operator) {
+        /* If sym > NOSYM then we are parsing the beginning of a user defined
+         * operator. If sem.parsing_operator is true and sym <= NOSYM, then
+         * we are parsing the end of the operator.
+         */
+        sem.parsing_operator = (sym > NOSYM);
         break;
       }
     } else {
@@ -1383,6 +1406,12 @@ semant2(int rednum, SST *top)
           (STYPEG(mem_sptr) != ST_PROC && STYPEG(mem_sptr) != ST_ENTRY &&
            STYPEG(mem_sptr) != ST_USERGENERIC))
         goto normal_var_ref_component;
+      ast = SST_ASTG(RHS(1));
+      if (A_ORIG_EXPRG(ast) != 0) {
+        /* This is a type bound procedure, so restore original expression. */
+        ast = A_ORIG_EXPRG(ast);
+        SST_ASTP(RHS(1), ast);
+      }
       switch (A_TYPEG(SST_ASTG(RHS(1)))) {
       case A_ID:
       case A_LABEL:
@@ -1826,11 +1855,12 @@ semant2(int rednum, SST *top)
       ast_conval(top);
     }
     break;
+
   /*
    *      <constant> ::= <real>    |
    */
 
-  case CONSTANT3:
+  case CONSTANT4:
     SST_DTYPEP(LHS, DT_REAL4);
     /* value set by scan */
     ast_conval(top);
@@ -1838,7 +1868,7 @@ semant2(int rednum, SST *top)
   /*
    *      <constant> ::= <double>  |
    */
-  case CONSTANT4:
+  case CONSTANT5:
     SST_DTYPEP(LHS, DT_REAL8);
     /* value set by scan */
     ast_cnst(top);
@@ -1846,7 +1876,7 @@ semant2(int rednum, SST *top)
   /*
    *      <constant> ::= <quad>     |
    */
-  case CONSTANT5:
+  case CONSTANT6:
     SST_DTYPEP(LHS, DT_QUAD);
     /* value set by scan */
     ast_cnst(top);
@@ -1854,7 +1884,7 @@ semant2(int rednum, SST *top)
   /*
    *      <constant> ::= <complex> |
    */
-  case CONSTANT6:
+  case CONSTANT7:
     SST_DTYPEP(LHS, DT_CMPLX8);
     /* value set by scan */
     ast_cnst(top);
@@ -1862,7 +1892,7 @@ semant2(int rednum, SST *top)
   /*
    *      <constant> ::= <dcomplex> |
    */
-  case CONSTANT7:
+  case CONSTANT8:
     SST_DTYPEP(LHS, DT_CMPLX16);
     /* value set by scan */
     ast_cnst(top);
@@ -1870,7 +1900,7 @@ semant2(int rednum, SST *top)
   /*
    *      <constant> ::= <qcomplex> |
    */
-  case CONSTANT8:
+  case CONSTANT9:
     SST_DTYPEP(LHS, DT_QCMPLX);
     /* value set by scan */
     ast_cnst(top);
@@ -1878,7 +1908,7 @@ semant2(int rednum, SST *top)
   /*
    *      <constant> ::= <nondec const> |
    */
-  case CONSTANT9:
+  case CONSTANT10:
     SST_DTYPEP(LHS, DT_WORD);
     /* value set by scan */
     ast_conval(top);
@@ -1886,7 +1916,7 @@ semant2(int rednum, SST *top)
   /*
    *      <constant> ::= <nonddec const> |
    */
-  case CONSTANT10:
+  case CONSTANT11:
     SST_DTYPEP(LHS, DT_DWORD);
     /* value set by scan */
     ast_cnst(top);
@@ -1894,7 +1924,7 @@ semant2(int rednum, SST *top)
   /*
    *      <constant> ::= <Hollerith>    |
    */
-  case CONSTANT11:
+  case CONSTANT12:
     SST_DTYPEP(LHS, DT_HOLL);
     /* value set by scan */
     ast_cnst(top);
@@ -1902,7 +1932,7 @@ semant2(int rednum, SST *top)
   /*
    *      <constant> ::= <log const>     |
    */
-  case CONSTANT12:
+  case CONSTANT13:
     if (DTY(stb.user.dt_log) == TY_LOG8) {
       if ((INT)SST_CVALG(RHS(1)) == SCFTN_FALSE)
         val[0] = val[1] = 0;
@@ -1924,7 +1954,7 @@ semant2(int rednum, SST *top)
   /*
    *      <constant> ::= <log kind const> |
    */
-  case CONSTANT13:
+  case CONSTANT14:
     /* token value of <log kind const> is an ST_CONST entry */
     sptr = SST_CVALG(RHS(1));
     dtype = DTYPEG(sptr);
@@ -1939,13 +1969,13 @@ semant2(int rednum, SST *top)
   /*
    *      <constant> ::= <char literal>
    */
-  case CONSTANT14:
+  case CONSTANT15:
     break;
 
   /*
    *      <constant> ::= <kanji string> |
    */
-  case CONSTANT15:
+  case CONSTANT16:
     /*  compute number of Kanji chars in string: */
     sptr = SST_SYMG(RHS(1));         /* ST_CONST/TY_CHAR */
     i = string_length(DTYPEG(sptr)); /* length of string const */
@@ -1960,7 +1990,7 @@ semant2(int rednum, SST *top)
   /*
    *      <constant> ::= <elp> <expression> <cmplx comma> <expression> )
    */
-  case CONSTANT16:
+  case CONSTANT17:
     /*
      * special production to allow complex constants to be formed from
      * "general" real & imag expressions which evaluate to constants.
@@ -2725,6 +2755,9 @@ has_private(int in_dtype)
   return prv;
 } /* has_private */
 
+/**
+   \brief Check whether the dtype is inside a valid scope.
+ */
 int
 test_private_dtype(int dtype)
 {
@@ -2732,11 +2765,19 @@ test_private_dtype(int dtype)
   int tag;
   tag = DTY(dtype + 3);
   if (tag) {
-    int tagscope, scope;
+    SPTR tagscope, scope, prev_scope;
     tagscope = SCOPEG(tag);
-    for (scope = stb.curr_scope; scope > NOSYM;
-         scope = (SCOPEG(scope) == scope ? 0 : SCOPEG(scope))) {
+    for (scope = stb.curr_scope, prev_scope = NOSYM; scope > NOSYM;
+         prev_scope = scope, scope = SCOPEG(scope)) {
+
+      if (scope == prev_scope)
+        scope = 0;
+
       if (tagscope == scope)
+        break;
+
+      if (scope > NOSYM && STYPEG(scope) == ST_MODULE && 
+          ANCESTORG(scope) && tagscope == ANCESTORG(scope))
         break;
     }
     if (tagscope && scope <= NOSYM) {

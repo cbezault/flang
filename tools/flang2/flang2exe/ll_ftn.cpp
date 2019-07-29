@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2016-2018, NVIDIA CORPORATION.  All rights reserved.
+ * Copyright (c) 2016-2019, NVIDIA CORPORATION.  All rights reserved.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -242,7 +242,7 @@ ll_process_routine_parameters(SPTR func_sptr)
   DTYPE return_dtype;
   DTYPE param_dtype;
   SPTR gblsym;
-  int fval;
+  SPTR fval;
   SPTR clen;
   int param_num;
   DTYPE ref_dtype;
@@ -253,7 +253,7 @@ ll_process_routine_parameters(SPTR func_sptr)
   const char *nm;
   LL_Type *ref_dummy;
   bool hiddenarg = true;
-  int display_temp = 0;
+  SPTR display_temp = SPTR_NULL;
 
   if (func_sptr < 1)
     return;
@@ -271,9 +271,7 @@ ll_process_routine_parameters(SPTR func_sptr)
     return;
 
   if (!gblsym) {
-    gblsym = iface ? get_llvm_funcptr_ag(func_sptr,
-                                         (char *)nm) // FIXME castaway const?
-                   : get_ag(func_sptr);
+    gblsym = iface ? get_llvm_funcptr_ag(func_sptr, nm) : get_ag(func_sptr);
   }
 
   if (!update && (abi = ll_proto_get_abi(ll_proto_key(func_sptr))) &&
@@ -602,7 +600,7 @@ get_return_type(SPTR func_sptr)
   DTYPE dtype;
 
   if ((SCG(func_sptr) == SC_DUMMY) && MIDNUMG(func_sptr))
-    func_sptr = (SPTR)MIDNUMG(func_sptr); // ???
+    func_sptr = MIDNUMG(func_sptr);
 
   fval = FVALG(func_sptr);
   if (fval) {
@@ -621,10 +619,10 @@ get_return_type(SPTR func_sptr)
     return DT_NONE;
   case TY_STRUCT:
   case TY_UNION:
-    if (is_iso_cptr(dtype))
-      return DT_ADDR;
     if (CFUNCG(func_sptr))
       break;
+    if (is_iso_cptr(dtype))
+      return DT_ADDR;
     return DT_NONE;
   case TY_CMPLX:
   case TY_DCMPLX:
@@ -719,7 +717,12 @@ fix_llvm_fptriface(void)
       continue;
     dtype = DTYPEG(sptr);
 
-    if (SCG(sptr) == SC_EXTERN && STYPEG(sptr) == ST_PROC && INMODULEG(sptr)) {
+    /*
+     * !IS_INTERFACE check allows abstract interfaces which have INMODULE
+     * bit set to pass through this check, for processing of parameters.
+     */
+    if (SCG(sptr) == SC_EXTERN && STYPEG(sptr) == ST_PROC && INMODULEG(sptr) &&
+        !IS_INTERFACEG(sptr)) {
 
       /* If routine is in same module as current routine then it is module
          subroutine - should already process for this module.
@@ -755,14 +758,6 @@ fix_llvm_fptriface(void)
 void
 store_llvm_localfptr(void)
 {
-  /* Store interface function name in fptr_local table.  This table is done per
-     routine.
-     It stores the name that will be used to search for function signature of
-     what it points to.  The interface name is in the form of
-     <getname(gbl.currsub)>_$_<getname(iface)>,
-     which is done in get_llvm_ifacenm().
-   */
-
   int dtype, dt, sptr, iface;
   char *ifacenm;
 
@@ -892,11 +887,6 @@ make_new_funcsptr(SPTR oldsptr)
   return sptr;
 }
 
-/* This function collect all arguments from all Entry include main routine ,
- * removing the duplicates, put into new dpdsc.
- *
- * Returns the master_sptr value
- */
 int
 get_entries_argnum(void)
 {
@@ -923,7 +913,7 @@ get_entries_argnum(void)
   /* Add first argument, the entry_option */
   i = 0;
   sprintf(name, "%s%d", "__master_entry_choice", stb.stg_avail);
-  opt = (SPTR)addnewsym(name); // ???
+  opt = addnewsym(name);
   SCG(opt) = SC_DUMMY;
   DTYPEP(opt, DT_INT);
   STYPEP(opt, ST_VAR);
@@ -942,7 +932,7 @@ get_entries_argnum(void)
   /* Add second arg if the following is true */
   if (fval && SCG(fval) != SC_DUMMY) {
     sprintf(name, "%s%d", "__master_entry_rslt", stb.stg_avail);
-    opt = (SPTR)addnewsym(name); // ???
+    opt = addnewsym(name);
     max_cnt++;
     SCG(opt) = SC_DUMMY;
     DTYPEP(opt, DTYPEG(fval));
@@ -1075,20 +1065,10 @@ write_dummy_as_local_in_entry(int sptr)
   }
 }
 
-/**
-   \brief Write out all Entry's as a separate routine
-
-   Each entry will call a master/common routine (MCR).  The first argument to
-   the MCR will determine which label(Entry) control will jump to upon entry
-   into the MCR.  If the MCR is a function, the next argument will be the
-   function's return value.  The next argument(s) will be all non-duplicate
-   aggregate arguments for all entries.  The MCR will always effectively be a
-   subroutine.
- */
 void
 print_entry_subroutine(LL_Module *module)
 {
-  SPTR sptr = (SPTR)gbl.entries; // ???
+  SPTR sptr = gbl.entries;
   int iter = 0;
   char num[16];
   int i;
@@ -1133,7 +1113,7 @@ print_entry_subroutine(LL_Module *module)
      * and we need to do that so that there exists an SNAME for those.
      */
     for (i = 1; i <= abi->nargs; ++i) {
-      SPTR arg_sptr = (SPTR)abi->arg[i].sptr; // ???
+      SPTR arg_sptr = abi->arg[i].sptr;
       if (!SNAME(arg_sptr) && CCSYMG(arg_sptr))
         process_sptr(arg_sptr);
       hashset_insert(formals, INT2HKEY(arg_sptr));

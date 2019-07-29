@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1994-2018, NVIDIA CORPORATION.  All rights reserved.
+ * Copyright (c) 1994-2019, NVIDIA CORPORATION.  All rights reserved.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -112,7 +112,7 @@ extern LOGICAL fpp_;
 
 #define INIT_LPS 21
 #define MAX_IDEPTH 20
-#define MAXFNAME 200
+#define MAX_PATHNAME_LEN 4096
 
 /*   define pseudo-characters - integer values equivalent
      to non-printing characters are used:  */
@@ -171,6 +171,12 @@ extern LOGICAL fpp_;
 #define B_RPAREN_FOUND 2
 #define B_RESULT_FOUND 3
 #define B_RESULT_RPAREN_FOUND 4
+
+#define ERROR_STOP()       \
+  {                        \
+    tkntyp = TK_ERRORSTOP; \
+    idlen += 5;            \
+  }
 
 static int bind_state = B_NONE;
 
@@ -1724,7 +1730,7 @@ read_card(void)
       sentinel = SL_MEM;
       goto bl_firstchar;
     }
-    if (XBIT(163, 1) && /* c$pgi - alternate pgi accelerator directive sentinel */
+    if (XBIT_PCAST && /* c$pgi - alternate pgi accelerator directive sentinel */
         cardb[1] == '$' && (cardb[2] == 'P' || cardb[2] == 'p') &&
         (cardb[3] == 'G' || cardb[3] == 'g') &&
         (cardb[4] == 'I' || cardb[4] == 'i')) {
@@ -4420,6 +4426,15 @@ alpha(void)
       scn.stmtyp = 0;
       goto check_name;
     }
+    if (idlen == 5 && strncmp(id, "error", 5) == 0 && 
+        *cp == ' ' && strncmp((cp+1), "stop", 4) == 0) {
+      ERROR_STOP();
+      goto alpha_exit;
+    }
+    if (exp_comma && idlen == 5 && strncmp(id, "quiet", 5) == 0) {
+       tkntyp = TK_QUIET;
+       goto alpha_exit;
+    }
     if (exp_attr && exp_comma && idlen == 4 && strncmp(id, "kind", 4) == 0) {
       tkntyp = TK_KIND;
       goto alpha_exit;
@@ -4479,7 +4494,7 @@ alpha(void)
     /*
      * special case for edit descriptors not followed by a digit
      */
-    if (!isdig(id[1]))
+    if (!isdig(id[1])) {
       switch (tkntyp) {
       case TK_A:
         tkntyp = TK_AFORMAT;
@@ -4521,6 +4536,12 @@ alpha(void)
       default:
         break;
       }
+    } else if (id[1] == '0') {
+      if (*cp == ' ' || *cp == ',' || *cp == ')') {
+        tkntyp = TK_G0FORMAT; /* G0 */
+        idlen += 1;
+      }
+    }
     goto alpha_exit;
 
   case SCM_IMPLICIT: /* look for letters, NONE, or keywords in
@@ -4868,6 +4889,11 @@ alpha(void)
 
   scmode = SCM_IDENT;
   scn.stmtyp = 0;
+  if (idlen == 5 &&  strncmp(id, "error", 5) == 0 && 
+      *cp == ' ' && strncmp((cp+1), "stop", 4) == 0) {
+    ERROR_STOP();
+    goto alpha_exit;
+  }
   if (idlen == 9 && strncmp(id, "associate", 9) == 0) {
     char *cp2 = cp;
     if (*cp == ' ')
@@ -5701,11 +5727,12 @@ get_keyword:
       tkntyp = TK_TCONTAINS;
       break;
     }
-    if (gbl.currsub == 0)
+    if (gbl.currsub == 0 && gbl.currmod > NOSYM) {
       /* CONTAINS within a module - statement will be treated as the
        * END of a blockdata
        */
       goto end_program_unit;
+    }
     /*
      * CONTAINS of an internal procedure.  Don't treat as an end of
      * subprogram yet.
@@ -7192,20 +7219,20 @@ push_include(char *p)
     ++p;
   *p = '\0';
 
-  fullname = getitem(8, MAXFNAME + 1);
+  fullname = getitem(8, MAX_PATHNAME_LEN + 1);
   if (incl_level < MAX_IDEPTH) {
     if (flg.idir) {
       for (c = 0; (p = flg.idir[c]); ++c)
-        if (fndpath(begin, fullname, MAXFNAME, p) == 0)
+        if (fndpath(begin, fullname, MAX_PATHNAME_LEN, p) == 0)
           goto found;
     }
-    if (fndpath(begin, fullname, MAXFNAME, DIRWORK) == 0)
+    if (fndpath(begin, fullname, MAX_PATHNAME_LEN, DIRWORK) == 0)
       goto found;
     if (flg.stdinc == 0) {
-      if (fndpath(begin, fullname, MAXFNAME, DIRSINCS) == 0)
+      if (fndpath(begin, fullname, MAX_PATHNAME_LEN, DIRSINCS) == 0)
         goto found;
     } else if (flg.stdinc != (char *)1) {
-      if (fndpath(begin, fullname, MAXFNAME, flg.stdinc) == 0)
+      if (fndpath(begin, fullname, MAX_PATHNAME_LEN, flg.stdinc) == 0)
         goto found;
     }
     goto not_found;
@@ -7299,24 +7326,24 @@ scan_include(char *str)
       *q = '\0';
     }
   }
-  fullname = getitem(8, MAXFNAME + 1);
-  dirname = getitem(8, MAXFNAME + 1);
+  fullname = getitem(8, MAX_PATHNAME_LEN + 1);
+  dirname = getitem(8, MAX_PATHNAME_LEN + 1);
   if (incl_level < MAX_IDEPTH) {
     if (flg.idir) {
       for (c = 0; (p = flg.idir[c]); ++c)
-        if (fndpath(str, fullname, MAXFNAME, p) == 0)
+        if (fndpath(str, fullname, MAX_PATHNAME_LEN, p) == 0)
           goto found;
     }
     dirnam(gbl.curr_file, dirname);
-    if (fndpath(str, fullname, MAXFNAME, dirname) == 0)
+    if (fndpath(str, fullname, MAX_PATHNAME_LEN, dirname) == 0)
       goto found;
-    if (fndpath(str, fullname, MAXFNAME, DIRWORK) == 0)
+    if (fndpath(str, fullname, MAX_PATHNAME_LEN, DIRWORK) == 0)
       goto found;
     if (flg.stdinc == 0) {
-      if (fndpath(str, fullname, MAXFNAME, DIRSINCS) == 0)
+      if (fndpath(str, fullname, MAX_PATHNAME_LEN, DIRSINCS) == 0)
         goto found;
     } else if (flg.stdinc != (char *)1) {
-      if (fndpath(str, fullname, MAXFNAME, flg.stdinc) == 0)
+      if (fndpath(str, fullname, MAX_PATHNAME_LEN, flg.stdinc) == 0)
         goto found;
     }
     goto not_found;
@@ -8042,7 +8069,7 @@ ff_read_card(void)
       sentinel = SL_MEM;
       goto bl_firstchar;
     }
-    if (XBIT(163, 1) && /* c$pgi - alternate pgi accelerator directive sentinel */
+    if (XBIT_PCAST && /* c$pgi - alternate pgi accelerator directive sentinel */
         p[1] == '$' && (p[2] == 'P' || p[2] == 'p') &&
         (p[3] == 'G' || p[3] == 'g') && (p[4] == 'I' || p[4] == 'i')) {
       firstp += 5;

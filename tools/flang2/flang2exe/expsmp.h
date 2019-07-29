@@ -55,15 +55,11 @@ int add_mp_penter(int ispar);
  */
 int add_mp_pexit(void);
 
-/**
-   \brief ...
- */
-int add_mp_p(int semaphore);
+/// Insert semaphore wait (enter critical section)
+int add_mp_p(SPTR semaphore);
 
-/**
-   \brief ...
- */
-int add_mp_v(int semaphore);
+/// Insert semaphore signal (end critical section)
+int add_mp_v(SPTR semaphore);
 
 /**
    \brief ...
@@ -103,7 +99,7 @@ void clear_tplnk(void);
 /**
    \brief ...
  */
-void exp_mp_func_prologue(void);
+void exp_mp_func_prologue(bool);
 
 /**
    \brief ...

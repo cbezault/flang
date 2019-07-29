@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1994-2018, NVIDIA CORPORATION.  All rights reserved.
+ * Copyright (c) 1994-2019, NVIDIA CORPORATION.  All rights reserved.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -1842,12 +1842,15 @@ emit_alnd_secd(int sptr, int memberast, LOGICAL free_flag, int std,
   /* predefined descriptor, case like MODULE */
   if (SECDSCG(DESCRG(sptr)))
     old_desc1 = SECDSCG(DESCRG(sptr));
-  if (old_desc1 == 0)
-    INS_DESCR(SECDG(DESCRG(sptr))) = sym_get_sdescr(sptr, -1);
-  else {
+  if (old_desc1) {
     INS_DESCR(SECDG(DESCRG(sptr))) = old_desc1;
     VISIT2P(INS_DESCR(SECDG(DESCRG(sptr))), 0);
     VISIT2P(old_desc1, 0);
+  } else if (SDSCG(sptr) && HCCSYMG(sptr)) {
+    // If there is already a (compiler-created) SDSC, use it.
+    INS_DESCR(SECDG(DESCRG(sptr))) = SDSCG(sptr);
+  } else {
+    INS_DESCR(SECDG(DESCRG(sptr))) = sym_get_sdescr(sptr, -1);
   }
   change_mk_id(DESCRG(sptr), INS_DESCR(SECDG(DESCRG(sptr))));
   emit_secd(sptr, memberast, free_flag, TRUE);
@@ -1880,6 +1883,8 @@ size_of_dtype(int dtype, int sptr, int memberast)
       sizeAst = sym_mkfunc_nodesc(mkRteRtnNm(RTE_lena), astb.bnd.dtype);
       sizeAst = begin_call(A_FUNC, sizeAst, 1);
       add_arg(check_member(memberast, mk_id(sptr)));
+    } else if (CVLENG(sptr) > NOSYM) {
+      sizeAst = mk_bnd_int(mk_id(CVLENG(sptr)));
     } else {
       int clen;
       clen = DTY(dtype + 1);
@@ -2625,19 +2630,37 @@ newargs_for_entry(int this_entry)
     } else {
       newdsc = NEWDSCG(arg);
       if (newdsc == 0) {
-        /* Subtlety: The commented-out ALLOCDESCG(arg) test is what
-         * seems to break pointer-valued functions in Whizard 2.3.1,
-         * since their results (which are converted into new first
-         * arguments) don't have the mystery ALLOCDESC flag set on them.
-         */
         set_preserve_descriptor(CLASSG(arg) || is_procedure_ptr(arg) ||
                                 (sem.which_pass && IS_PROC_DUMMYG(arg)) ||
                                 (ALLOCDESCG(arg) && RESULTG(arg)));
-
         newdsc = sym_get_arg_sec(arg);
+        if (!ALLOCDESCG(arg) && RESULTG(arg)) { 
+          /* Make sure the result has the updated descriptor in its SDSC
+           * field. It's needed when setting up arguments for the function
+           * callee. Also the ADDRESS field overloads NEWDSC which gets reset in
+           * lower_visit_symbol() of lowersym.c for function results.
+           */
+          SDSCP(arg, newdsc);
+        }
         set_preserve_descriptor(0);
         NEWDSCP(arg, newdsc);
       }
+    }
+    if (XBIT(54, 0x40) && CONTIGATTRG(arg)
+        && STYPEG(newdsc) != ST_UNKNOWN
+       ) { 
+      /* Generate contiguity check on this argument. 
+       * 
+       * NOTE: For LLVM targets, this function gets called by
+       * newargs_for_llvmiface() to set up placeholder descriptor
+       * arguments in the interface. We do not want to 
+       * generate contiguity checks in this case since an interface
+       * block is non-executable code. The sym_get_arg_sec() function
+       * above returns a newdsc without any STYPE when we're processing
+       * an interface. Therefore, we check whether STYPEG(newdsc) != ST_UNKNOWN.
+       */
+      int ast = mk_id(arg);
+      gen_contig_check(ast, ast, newdsc, FUNCLINEG(gbl.currsub), false, Gbegin);
     }
     SCP(newdsc, SC_DUMMY);
     OPTARGP(newdsc, OPTARGG(arg));
@@ -3395,6 +3418,8 @@ gen_ptr_in(int arg, int this_entry)
       cvlen = sym_get_scalar(SYMNAME(arg), "len", astb.bnd.dtype);
       CVLENP(arg, cvlen);
       ADJLENP(arg, 1);
+      if (SCG(arg) == SC_DUMMY)
+        CCSYMP(cvlen, 1);
     }
     len = mk_id(cvlen);
     rhs = size_ast_of(mk_id(newarg), dty);
@@ -4129,7 +4154,7 @@ set_assumed_bounds(int arg, int entry, int actual)
       ast1 = mk_isz_cval(1, astb.bnd.dtype);
     if (A_TYPEG(tmp_lb) == A_CNST) {
       sav = tmp_lb;
-    } else if ((XBIT(58, 0x400000) && TARGETG(arg)) &&
+    } else if ((XBIT(54, 2) || (XBIT(58, 0x400000) && TARGETG(arg))) &&
         tmp_lb == ast1 && A_TYPEG(tmp_lb) == A_ID) {
       /*
       FIX ME: setting the descriptor bounds to 1 here does not work since
@@ -4859,6 +4884,8 @@ add_auto_len(int sym, int Lbegin)
   if (cvlen == 0) {
     cvlen = sym_get_scalar(SYMNAME(sym), "len", DT_INT);
     CVLENP(sym, cvlen);
+    if (SCG(sym) == SC_DUMMY)
+      CCSYMP(cvlen, 1);
   }
   /* if ERLYSPEC set,the length assignment was done earlier done */
   if (!ERLYSPECG(CVLENG(sym))) {

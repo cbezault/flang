@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1993-2018, NVIDIA CORPORATION.  All rights reserved.
+ * Copyright (c) 1993-2019, NVIDIA CORPORATION.  All rights reserved.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -35,11 +35,20 @@
 #include "machar.h"
 #include "regutil.h"
 #include "machreg.h"
+#include "symfun.h"
 
 static void propagate_bihflags(void);
 static void flsh_saveili(void);
 
 #define DO_PFO (XBIT(148, 0x1000) && !XBIT(148, 0x4000))
+
+#ifdef __cplusplus
+inline SPTR getSptr_bnd_con(ISZ_T i) {
+  return static_cast<SPTR>(get_bnd_con(i));
+}
+#else
+#define getSptr_bnd_con get_bnd_con
+#endif
 
 /** \brief Make an argument list
  *
@@ -63,7 +72,7 @@ mkarglist(int cnt, DTYPE dt)
   if (dtype) {
     ad = AD_DPTR(dtype);
     if (ival[1] > ad_val_of(AD_NUMELM(ad)))
-      AD_NUMELM(ad) = AD_UPBD(ad, 0) = get_bnd_con(ival[1]);
+      AD_NUMELM(ad) = AD_UPBD(ad, 0) = getSptr_bnd_con(ival[1]);
   } else {
     SCP(expb.arglist, SC_AUTO);
     STYPEP(expb.arglist, ST_ARRAY);
@@ -73,7 +82,7 @@ mkarglist(int cnt, DTYPE dt)
     ad = AD_DPTR(dtype);
     AD_MLPYR(ad, 0) = stb.i1;
     AD_LWBD(ad, 0) = stb.i1;
-    AD_UPBD(ad, 0) = get_bnd_con(ival[1]);
+    AD_UPBD(ad, 0) = getSptr_bnd_con(ival[1]);
     AD_NUMDIM(ad) = 1;
     AD_SCHECK(ad) = 0;
     AD_ZBASE(ad) = stb.i1;
@@ -247,6 +256,7 @@ chk_block(int newili)
   int c_noprs; /* # of operands for conditional branch */
   int c_lb;    /* label of conditional branch  */
   int u_lb;    /* label of unconditional branch */
+  int old_lastilt;
 
   if (newili == 0)
     /* seems odd that newili is 0, but this can happen if one is adding
@@ -268,7 +278,12 @@ chk_block(int newili)
     if (EXPDBG(8, 32))
       fprintf(gbl.dbgfil, "---chk_block: curilt %d not br, add newili %d\n",
               expb.curilt, newili);
+    old_lastilt = expb.curilt;  
     expb.curilt = addilt(expb.curilt, newili);
+    /* addilt does not update BIH_ILTLAST().  We need to do it here: */
+    if (expb.curbih && BIH_ILTLAST(expb.curbih) == old_lastilt) {
+      BIH_ILTLAST(expb.curbih) = expb.curilt;
+    }
     return;
   }
   /* the current end of the block is some sort of branch,
@@ -474,7 +489,6 @@ check_ilm(int ilmx, int ilix)
     if (!is_freeili_opcode(opc)) {
       /* not a FREE ili */
       return ilix;
-      break;
     }
     goto like_store;
 
@@ -503,10 +517,9 @@ check_ilm(int ilmx, int ilix)
          * this case, a comparison followed by a branch needs the
          * old value.
          */
-        int ilmx2, len, opc2, i, use, found_use, found_arth;
-        int j, finvoke_ili;
-        use = ILM_OPND((ILM *)(ilmb.ilm_base + ilmx), 2);
-        ilmx2 = ilmx + ilms[IM_PSEUDOST].oprs + 1;
+        int len, opc2, i, found_use, found_arth;
+        int use = ILM_OPND((ILM *)(ilmb.ilm_base + ilmx), 2);
+        int ilmx2 = ilmx + ilms[IM_PSEUDOST].oprs + 1;
         for (found_use = 0, found_arth = 0; ilmx2 < expb.nilms; ilmx2 += len) {
           opc2 = ILM_OPC((ILM *)(ilmb.ilm_base + ilmx2));
           len = ilms[opc2].oprs + 1;
@@ -692,10 +705,8 @@ check_ilm(int ilmx, int ilix)
       iltb.ldvol = save_iltb_ldvol;
       iltb.stvol = save_iltb_stvol;
       iltb.qjsrfg = save_iltb_qjsrfg;
-
-      return ilix;
     }
-    break;
+    return ilix;
 
   default:
     if (EXPDBG(8, 2))
@@ -736,7 +747,7 @@ mk_swlist(INT n, SWEL *swhdr, int doinit)
   SCP(sym, SC_STATIC);
   i = dtype = get_type(3, TY_ARRAY, DT_INT);
   DTYPEP(sym, dtype);
-  DTY(i + 2) = get_bnd_con(2 * (n + 1));
+  DTySetArrayDesc(dtype, get_bnd_con(2 * (n + 1)));
 
   if (doinit) {
     /* initialized this array with the switch list  */
@@ -1011,7 +1022,7 @@ mk_swtab_ll(INT n, SWEL *swhdr, int deflab, int doinit)
       vv[1] = CONVAL2G(swel->val);
       sub64(vv, case_val, case_val);
       /*for (case_val = swel->val - case_val; case_val; case_val--)*/
-      while (TRUE) {
+      while (true) {
         if (cmp64(case_val, zero) == 0)
           break;
         dinit_put(DINIT_LABEL, deflab); /* default */
@@ -1041,6 +1052,7 @@ mk_argasym(int sptr)
 {
   SPTR asym;
   asym = getccsym('c', sptr, ST_VAR);
+  IS_PROC_DESCRP(asym, IS_PROC_DESCRG(sptr));
   DESCARRAYP(asym, DESCARRAYG(sptr));
   CLASSP(asym, CLASSG(sptr));
   SDSCP(asym, SDSCG(sptr));
@@ -1096,7 +1108,6 @@ mk_impsym(SPTR sptr)
                                * as prefixes
                                */
   int impsym;
-  char *dec_str = NULL;
 
   switch (STYPEG(sptr)) {
   case ST_ENTRY:
@@ -1152,7 +1163,7 @@ mkfunc_sflags(const char *nmptr, const char *flags)
   const char *p;
   sptr = mkfunc(nmptr);
   p = flags;
-  while (TRUE) {
+  while (true) {
     p = skipws(p);
     if (*p == '\0')
       break;
@@ -1209,15 +1220,15 @@ exp_add_copy(SPTR lhssptr, SPTR rhssptr)
   chk_block(lhsst);
 }
 
-int
+SPTR
 get_byval_local(int argsptr)
 {
   char *new_name;
-  int newsptr;
+  SPTR newsptr;
   int new_length;
 
   newsptr = MIDNUMG(argsptr);
-  if (newsptr > 0)
+  if (newsptr > SPTR_NULL)
     return newsptr;
   new_name = SYMNAME(argsptr);
   new_name += 3; /* move past appended _V_ */

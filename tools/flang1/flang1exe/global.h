@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1994-2018, NVIDIA CORPORATION.  All rights reserved.
+ * Copyright (c) 1994-2019, NVIDIA CORPORATION.  All rights reserved.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -61,7 +61,6 @@ typedef struct {
   FILE *asmfil;    /* file pointer for output assembly file */
   FILE *outfil;    /* file pointer for source output file */
   FILE *symfil;    /* file pointer for symbol output file */
-  FILE *dghpffil;  /* file pointer for dghpf output file */
   FILE *gblfil;    /* file pointer for static global info output file */
   FILE *stbfil;    /* file pointer for symbols and datatypes */
   LOGICAL eof_flag;
@@ -143,6 +142,8 @@ typedef struct {
                          * preprocessed (can be more general if we choose).
                          */
   LOGICAL denorm;       /* enforce denorm for the current subprogram */
+  LOGICAL inomptarget;  /* set if it is OpenMP's target region*/
+  LOGICAL empty_contains; /* if TRUE, CONTAINS clause has an empty body */
 } GBL;
 
 #undef MAXCPUS
@@ -206,7 +207,6 @@ typedef struct {
   LOGICAL hpf;
   LOGICAL freeform;
   LOGICAL sequence;
-  LOGICAL dghpfout;
   int ipa;
   LOGICAL craft_supported;
   LOGICAL doprelink; /* generate the .prelink.f file */
@@ -215,6 +215,7 @@ typedef struct {
   LOGICAL defaultsequence;
   int errorlimit;
   LOGICAL smp; /* TRUE => allow smp directives */
+  LOGICAL omptarget;  /* TRUE => allow OpenMP Offload directives */
   int tpcount;
   int tpvalue[TPNVERSION]; /* target processor(s), for unified binary */
   int accmp;

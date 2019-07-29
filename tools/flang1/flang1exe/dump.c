@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2000-2018, NVIDIA CORPORATION.  All rights reserved.
+ * Copyright (c) 2000-2019, NVIDIA CORPORATION.  All rights reserved.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -1184,6 +1184,8 @@ dast(int astx)
     A_ENDLABP(0, 0);
     putnzint("procbind", A_PROCBINDG(0));
     A_PROCBINDP(0, 0);
+    putnzint("num_threads", A_NPARG(0));
+    A_NPARP(0, 0);
     break;
   case A_MP_TEAMS:
     putnzint("lop", A_LOPG(0));
@@ -1685,6 +1687,13 @@ dastreex(int astx, int l, int notlast)
   case A_MP_BCOPYPRIVATE:
   case A_MP_COPYPRIVATE:
   case A_MP_ECOPYPRIVATE:
+  case A_MP_MAP:
+  case A_MP_EMAP:
+  case A_MP_TARGETLOOPTRIPCOUNT:
+  case A_MP_DISTRIBUTE:
+  case A_MP_EREDUCTION:
+  case A_MP_BREDUCTION:
+  case A_MP_REDUCTIONITEM:
     break;
   default:
     fprintf(gbl.dbgfil, "NO DUMP AVL");
@@ -1754,6 +1763,8 @@ dumpfnode(int v)
   putnzint("loop", FG_LOOP(v));
   putnzint("next", FG_NEXT(v));
   putnzint("natnxt", FG_NATNXT(v));
+  putnzint("par", FG_PAR(v));
+  putnzint("parloop", FG_PARLOOP(v));
   putline();
   pred = FG_PRED(v);
   if (pred == NULL) {
@@ -1785,8 +1796,6 @@ dumpfnode(int v)
   putbit("jumptable", FG_JMP_TBL(v));
   putbit("master", FG_MASTER(v));
   putbit("mexits", FG_MEXITS(v));
-  putbit("par", FG_PAR(v));
-  putbit("parloop", FG_PARLOOP(v));
   putbit("parsect", FG_PARSECT(v));
   putbit("task", FG_TASK(v));
   putbit("ptrstore", FG_PTR_STORE(v));
@@ -2151,6 +2160,7 @@ dumploop(int l)
   putnzint("sibling", LP_SIBLING(l));
   put2int("lines", BIH_LINENO(FG_TO_BIH(LP_HEAD(l))),
           BIH_LINENO(FG_TO_BIH(LP_TAIL(l))));
+  putnzint("parloop", LP_PARLOOP(l));
   putline();
   putstring1("nodes:");
   for (v = LP_FG(l); v; v = FG_NEXT(v)) {
@@ -2196,7 +2206,6 @@ dumploop(int l)
   putbit("master", LP_MASTER(l));
   putbit("mexits", LP_MEXITS(l));
   putbit("nobla", LP_NOBLA(l));
-  putbit("parloop", LP_PARLOOP(l));
   putbit("parregn", LP_PARREGN(l));
   putbit("parsect", LP_PARSECT(l));
 #ifdef LP_PTR_LOAD
@@ -2249,6 +2258,8 @@ dstd(int stdx)
   putint("ast", astx);
   putnzint("lineno", STD_LINENO(stdx));
   putnsym("label", STD_LABEL(stdx));
+  if (STD_BLKSYM(stdx) != SPTR_NULL)
+    putnsym("blksym", STD_BLKSYM(stdx));
   putint("prev", STD_PREV(stdx));
   putint("next", STD_NEXT(stdx));
 #ifdef STD_TAG
@@ -2268,6 +2279,8 @@ dstd(int stdx)
   putbit("par", STD_PAR(stdx));
   putbit("cs", STD_CS(stdx));
   putbit("accel", STD_ACCEL(stdx));
+  putbit("rescope", STD_RESCOPE(stdx));
+  putbit("indiv", STD_INDIVISIBLE(stdx));
   putbit("atomic", STD_ATOMIC(stdx));
   putbit("kernel", STD_KERNEL(stdx));
   putbit("task", STD_TASK(stdx));
@@ -3328,6 +3341,8 @@ dsym(int sptr)
     HIDDENP(0, 0);
     putbit("inmodule", INMODULEG(0));
     INMODULEP(0, 0);
+    putbit("ancestor", ANCESTORG(0));
+    ANCESTORP(0, 0);
     putbit("internal", INTERNALG(0));
     INTERNALP(0, 0);
     putbit("mscall", MSCALLG(0));
@@ -3473,6 +3488,8 @@ dsym(int sptr)
     DINITP(0, 0);
     putbit("needmod", NEEDMODG(0));
     NEEDMODP(0, 0);
+    putbit("ancestor", ANCESTORG(0));
+    ANCESTORP(0, 0);
     putbit("typd", TYPDG(0));
     TYPDP(0, 0);
     putbit("visit", VISITG(0));
@@ -3556,6 +3573,8 @@ dsym(int sptr)
     INDEPP(0, 0);
     putbit("inmodule", INMODULEG(0));
     INMODULEP(0, 0);
+    putbit("ancestor", ANCESTORG(0));
+    ANCESTORP(0, 0);
     putbit("internal", INTERNALG(0));
     INTERNALP(0, 0);
 #ifdef L3FG
@@ -3836,6 +3855,10 @@ dsym(int sptr)
     putnsym("slnk", SLNKG(0));
     SLNKP(0, 0);
     putline();
+#ifdef CONSTANTG
+    putbit("constant", CONSTANTG(0));
+    CONSTANTP(0, 0);
+#endif
     putbit("dcld", DCLDG(0));
     DCLDP(0, 0);
     putbit("end", ENDG(0));

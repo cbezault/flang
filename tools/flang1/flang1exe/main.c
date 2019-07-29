@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1994-2018, NVIDIA CORPORATION.  All rights reserved.
+ * Copyright (c) 1994-2019, NVIDIA CORPORATION.  All rights reserved.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -159,7 +159,7 @@ main(int argc, char *argv[])
   getcpu();
   init(argc, argv); /* initialize */
   if (gbl.fn == NULL)
-  	gbl.fn = gbl.src_file;
+    gbl.fn = gbl.src_file;
 
 #if DEBUG
   if (debugfunconly > 0)
@@ -523,7 +523,7 @@ main(int argc, char *argv[])
       xref(); /* write cross reference map */
       xtimes[7] += getcpu();
     }
-  skip_compile:
+    skip_compile:
     (void)summary(FALSE, FALSE);
     errini();
 
@@ -659,9 +659,9 @@ init(int argc, char *argv[])
     int form; /* 0 = fixed, 1 = form */
     int fpp;  /* 0 = don't preprocess, 1 = preprocess */
   } suffixes[] = {
-      {".hpf", 0, 0}, {".f", 0, 0},   {".F", 0, 1},   {".f90", 1, 0},
-      {".F90", 1, 1}, {".f95", 1, 0}, {".F95", 1, 1}, {".for", 0, 0},
-      {".fpp", 0, 1}, {0, 0, 0},
+          {".hpf", 0, 0}, {".f", 0, 0},   {".F", 0, 1},   {".f90", 1, 0},
+          {".F90", 1, 1}, {".f95", 1, 0}, {".F95", 1, 1}, {".for", 0, 0},
+          {".fpp", 0, 1}, {0, 0, 0},
   };
   char *followval;
   int followindex;
@@ -669,10 +669,10 @@ init(int argc, char *argv[])
 
   flg.freeform = -1;
   file_suffix = ".f90"; /* default suffix for source files */
-                        /*
-                         * initialize error and symbol table modules in case error messages are
-                         * issued:
-                         */
+  /*
+   * initialize error and symbol table modules in case error messages are
+   * issued:
+   */
   errini();
   gbl.curr_file = NULL;
   gbl.fn = NULL;
@@ -706,6 +706,7 @@ init(int argc, char *argv[])
     goto empty_cl;
 
   char *tp;            /* Target architecture */
+  char *omptp = NULL;         /* OpenMP Target architecture */
   int vect_val;        /* Vectorizer settings */
   char *modexport_val; /* Modexport file name */
   char *modindex_val;  /* Modindex file name */
@@ -764,6 +765,10 @@ init(int argc, char *argv[])
   /* Optimization level */
   register_integer_arg(arg_parser, "opt", &(flg.opt), 1);
 
+  /* Debug */
+  register_boolean_arg(arg_parser, "debug", &(flg.debug), 0);
+  register_integer_arg(arg_parser, "ieee", &(flg.ieee), 0);
+
   /* Allocate space for command line macro definitions */
   flg.def = (char **)getitem(8, argc * sizeof(char *));
   flg.undef = (char **)getitem(8, argc * sizeof(char *));
@@ -786,6 +791,7 @@ init(int argc, char *argv[])
 
   /* Other flags */
   register_boolean_arg(arg_parser, "mp", (bool *)&(flg.smp), false);
+  register_string_arg(arg_parser, "fopenmp-targets", &omptp, NULL);
   register_boolean_arg(arg_parser, "preprocess", &arg_preproc, true);
   register_boolean_arg(arg_parser, "reentrant", &arg_reentrant, false);
   register_integer_arg(arg_parser, "terse", &(flg.terse), 1);
@@ -877,7 +883,10 @@ init(int argc, char *argv[])
 
   /* Postprocess target architecture */
   do_set_tp(tp);
-
+#ifdef OMP_OFFLOAD_LLVM
+  if(omptp != NULL)
+    flg.omptarget = TRUE;
+#endif
   /* Vectorizer settings */
   flg.vect |= vect_val;
   if (flg.vect & 0x10)
@@ -940,7 +949,7 @@ init(int argc, char *argv[])
   if (flg.es && !flg.p)
     flg.x[123] |= 0x100;
 
-empty_cl:
+  empty_cl:
   if (sourcefile == NULL) {
     if (flg.ipa & 0x0a) {
       /* for IPA propagation or when generating static$init, no sourcefile */
@@ -1023,12 +1032,12 @@ empty_cl:
     }
     /* not found */
     error(2, 4, 0, sourcefile, CNULL);
-  is_open:
+    is_open:
     if (preproc == 1)
       fpp_ = TRUE; /* -preproc forces preprocessing */
   }
 
-do_curr_file:
+  do_curr_file:
 
   if (gbl.file_name == NULL)
     gbl.file_name = gbl.src_file;
@@ -1249,7 +1258,7 @@ reptime(void)
   } else if (gbl.dbgfil)
     fprintf(gbl.dbgfil, "%s\n", buf);
 
-xbitcheck:
+  xbitcheck:
   if (!XBIT(0, 1))
     return;
   fprintf(stderr, "  Timing stats:\n");
@@ -1291,6 +1300,7 @@ datastructure_reinit(void)
   gbl.p_adjarr = NOSYM;
   gbl.p_adjstr = NOSYM;
   gbl.denorm = FALSE;
+  gbl.inomptarget = false;
   /* restore opt flag to its original value */
   flg.opt = saveoptflag;
   flg.vect = savevectflag;

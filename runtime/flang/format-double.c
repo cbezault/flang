@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2017-2018, NVIDIA CORPORATION.  All rights reserved.
+ * Copyright (c) 2017-2019, NVIDIA CORPORATION.  All rights reserved.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -218,6 +218,22 @@ div_by_billion(uint32_t le_x[32], int *words)
   return remainder;
 }
 
+static inline uint64_t
+double_to_uint64 (double x) {
+
+#if defined(TARGET_LLVM) && defined(TARGET_LINUX_X8664)
+/*  
+ *  LLVM emulates 'vcvttsd2usi' (a new AVX-512F instruction) with 'vcvttsd2si' 
+ *  on non AVX-512F machines to cast double to unsigned long. With -Ktrap=fp
+ *  option, this generates a floating point exception when the converted number
+ *  is >= 9223372036854775808 (1<<63).
+ */
+  if (x >= SIGN_BIT)
+    return (uint64_t) (x - SIGN_BIT) + SIGN_BIT;
+#endif
+  return (uint64_t) x;
+}
+
 /*
  *  Convert a nonnegative integer represented as a double
  *  into a sequence of decimal digit characters ('0' to '9').
@@ -234,7 +250,7 @@ format_int_part(char *buff, int width, double x)
    * arithmetic below.
    */
   if (x <= MAX_EXACTLY_REPRESENTABLE_UINT64) {
-    out = reversed_uint64(out, buff, x);
+    out = reversed_uint64(out, buff, double_to_uint64(x));
     if (!out)
       return width + 1; /* overflow */
   } else {
@@ -361,7 +377,7 @@ format_fraction(char buff[MAX_FRACTION_SIGNIFICANT_DECIMAL_DIGITS],
     return;
   }
 
-  absx -= (uint64_t) absx;
+  absx -= double_to_uint64(absx);
   if (absx == 0.0) {
     fill(buff, '0', width);
     return;
@@ -453,7 +469,7 @@ fraction_digits(char buff[MAX_FRACTION_SIGNIFICANT_DECIMAL_DIGITS],
 
   if (absx >= MIN_ENTIRELY_INTEGER)
     return -1;
-  absx -= (uint64_t) absx;
+  absx -= double_to_uint64(absx);
   if (absx == 0.0)
     return -1;
 
@@ -657,7 +673,7 @@ F_format(char *output_buffer, int width,
       /* |x| is an integer (no bits worth < 2**0) */
       fill(frac, '0', frac_digits);
     } else {
-      uint64_t int_absx = (uint64_t) absx;
+      uint64_t int_absx = double_to_uint64(absx);
       int next_digit_for_rounding = 0;
       bool is_inexact = false;
       format_fraction(frac, &next_digit_for_rounding, &is_inexact,
@@ -885,7 +901,7 @@ ED_format(char *out_buffer, int width, const struct formatting_control *control,
     } else if (frac_part_digits < 0) {
       expo = int_part_digits;
       is_inexact = absx < MAX_EXACTLY_REPRESENTABLE_UINT64 &&
-                   absx != (uint64_t) absx;
+                   absx != double_to_uint64(absx);
       while (int_part_digits > significant_digits) {
         is_inexact |= next_digit_for_rounding != 0;
         next_digit_for_rounding = payload[--int_part_digits] - '0';
@@ -1106,7 +1122,8 @@ G_format(char *out, int width,
       if (int_part_digits == 0) {
         bool all_frac_zeroes = all_zeroes(frac_part, frac_digits);
         if (frac_digits > 0 && frac_part[0] == '0' &&
-            (!all_frac_zeroes || next_digit_for_rounding > 0 || is_inexact))
+           (!all_frac_zeroes || next_digit_for_rounding > 0 || is_inexact)
+           || (frac_digits == 0 && control->scale_factor))
           goto do_E_formatting; /* 0 < |x| < 0.1 */
         if (all_frac_zeroes) {
           if (is_negative && control->no_minus_zero) {
@@ -1115,7 +1132,11 @@ G_format(char *out, int width,
           }
           /* Use an integer part of '0' and count it as a significant digit. */
           int_part_digits = 1; /* '0' */
-          frac_digits = significant_digits - int_part_digits;
+          if (control->fraction_digits != 0) {
+            frac_digits = significant_digits - int_part_digits;
+          } else {
+            frac_digits = control->fraction_digits;
+          }
           leading_spaces = width - (sign_width + int_part_digits + 1 +
                                     frac_digits + trailing_blanks);
           int_part = out + leading_spaces + sign_width;

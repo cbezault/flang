@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1993-2018, NVIDIA CORPORATION.  All rights reserved.
+ * Copyright (c) 1993-2019, NVIDIA CORPORATION.  All rights reserved.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -60,6 +60,9 @@ typedef struct {
   FILE *asmfil;    /* file pointer for output assembly file */
   FILE *stbfil;    /* file pointer for symbols and datatype for llvm compiler */
   int eof_flag;
+  char *ompaccfilename;	/** pointer to the device file name for openmp gpu offload */
+  FILE *ompaccfile;	/** file pointer for device code */
+  SPTR ompoutlinedfunc;
   SPTR currsub;    /* symtab ptr to current subprogram */
   SPTR caller;     /* symtab ptr to current caller (for bottom-up inlining) */
   int cgr_index;   /* call graph index to current subprogram */
@@ -69,12 +72,12 @@ typedef struct {
   SPTR cmblks;     ///< pointer to list of common blocks
   SPTR externs;    ///< pointer to list of external functions
   SPTR consts;     ///< pointer to list of referenced constants
-  int entries;   /* list of entry symbols */
-  SPTR statics;   /* list of "static" variables */
+  SPTR entries;  ///< list of entry symbols
+  SPTR statics;   ///< list of "static" variables
   SPTR bssvars;   ///< list of uninitialized "static" variables
   SPTR locals;    ///< pointer to list of local variables
-  SPTR basevars;  /* pointer to list of base symbols used for global offsets */
-  int asgnlbls;  /* pointer to list of labels appearing in assign stmts.*/
+  SPTR basevars; ///< pointer to list of base symbols used for global offsets
+  SPTR asgnlbls; ///< pointer to list of labels appearing in assign stmts
   int vfrets;    /* nonzero if variable format (<>) items present */
   ISZ_T caddr;   /* current available address in code space */
   ISZ_T locaddr; /* current available address for local variables,
@@ -136,16 +139,25 @@ typedef struct {
   char *fn;     /* name of file being compiled passed from the FE */
   int cuda_constructor;
   int cudaemu; /* emulating CUDA device code */
+  int pcast;      /* bitmask for PCAST features */
 #ifdef PGF90
   SPTR typedescs; /* list of type descriptors */
 #endif
   bool denorm; /* enforce denorm for the current subprogram */
   int outlined;   /* is outlined function .*/
   int usekmpc;    /* use KMPC runtime. turned on for -ta=multicore for llvm. */
+#if defined(OMP_OFFLOAD_PGI) || defined(OMP_OFFLOAD_LLVM)
+  bool ompaccel_intarget;  /* set when expander is in the openmp target construct */
+  bool ompaccel_isdevice;  /* set when generating code for openmp target device */
+  SPTR teamPrivateArgs;    /* keeps sptr that holds team private array */
+#endif
 } GBL;
 
 #undef MAXCPUS
 #define MAXCPUS 256
+
+/* mask values for gbl.pcast */
+#define PCAST_CODE 1
 
 extern GBL gbl;
 #define GBL_CURRFUNC gbl.currsub
@@ -199,6 +211,7 @@ typedef struct {
   char *stdinc; /* NULL => use std include; 1 ==> do not look in
                  * std dir; o.w., use value as the std dir */
   bool smp;  /* TRUE => allow smp directives */
+  LOGICAL omptarget;  /* TRUE => allow OpenMP Offload directives */
   int errorlimit;
   bool trans_inv; /* global equiv to -Mx,7,0x10000 */
   int tpcount;

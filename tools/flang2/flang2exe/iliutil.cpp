@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1993-2018, NVIDIA CORPORATION.  All rights reserved.
+ * Copyright (c) 1993-2019, NVIDIA CORPORATION.  All rights reserved.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -44,16 +44,26 @@
 #include "scutil.h"
 #include "symfun.h"
 
+#if defined(OMP_OFFLOAD_PGI) || defined(OMP_OFFLOAD_LLVM)
+#include "ompaccel.h"
+#endif
+
 /*
  * MTH, FMTH, ... names
  */
 #include "mth.h"
 
-/** Union used to encode ATOMIC_INFO as an int or decode it.  If
-    sizeof(ATOMIC_INFO)>int, then the union trick cannot be used and we'll have
-    to write explicit bit packing code. */
+/** Union used to encode ATOMIC_INFO as an int or decode it.  The union
+    contains a compacted version of ATOMIC_INFO using bitfields.  The bitfields
+    are unsigned rather than the proper enum type so that the values aren't
+    sign extended when extracted. */
 union ATOMIC_ENCODER {
-  ATOMIC_INFO info;
+  struct {
+    unsigned msz : 8;
+    unsigned op : 8;
+    unsigned origin : 2;
+    unsigned scope : 1;
+  } info;
   int encoding;
 };
 
@@ -62,6 +72,7 @@ union ATOMIC_ENCODER {
 
 bool share_proc_ili = false;
 bool share_qjsr_ili = false;
+extern bool ishft;
 
 static int addarth(ILI *);
 static int red_iadd(int, INT);
@@ -120,8 +131,24 @@ static bool safe_qjsr = false;
 inline CC_RELATION CCRelationILIOpnd(ILI *p, int n) {
   return static_cast<CC_RELATION>(p->opnd[n]);
 }
+inline DTYPE DTypeILIOpnd(ILI *p, int n) {
+  return static_cast<DTYPE>(p->opnd[n]);
+}
+inline MSZ ConvertMSZ(int n) {
+  return static_cast<MSZ>(n);
+}
+inline ATOMIC_RMW_OP ConvertATOMIC_RMW_OP(int n) {
+  return static_cast<ATOMIC_RMW_OP>(n);
+}
+inline SPTR sptrGetILI(ILI *p) {
+  return static_cast<SPTR>(get_ili(p));
+}
 #else
 #define CCRelationILIOpnd(p,n) (p)->opnd[n]
+#define DTypeILIOpnd(p,n)      (p)->opnd[n]
+#define ConvertMSZ(n)           (n)
+#define ConvertATOMIC_RMW_OP(n) (n)
+#define sptrGetILI get_ili
 #endif
 
 /**
@@ -384,7 +411,7 @@ ad1ili(ILI_OP opc, int opn1)
   newili.opnd[2] = 0;
   newili.opnd[3] = 0;
   newili.opnd[4] = 0;
-  return addili((ILI *)&newili);
+  return addili(&newili);
 }
 
 /** \brief add an ili with one operand which has an alternate
@@ -403,7 +430,7 @@ ad1altili(ILI_OP opc, int opn1, int alt)
   newili.opnd[2] = 0;
   newili.opnd[3] = 0;
   newili.opnd[4] = 0;
-  ilix = get_ili((ILI *)&newili);
+  ilix = get_ili(&newili);
   if (ILI_ALT(ilix) == 0)
     ILI_ALT(ilix) = alt;
   return ilix;
@@ -442,7 +469,7 @@ ad2altili(ILI_OP opc, int opn1, int opn2, int alt)
   newili.opnd[2] = 0;
   newili.opnd[3] = 0;
   newili.opnd[4] = 0;
-  ilix = get_ili((ILI *)&newili);
+  ilix = get_ili(&newili);
   if (ILI_ALT(ilix) == 0)
     ILI_ALT(ilix) = alt;
   return ilix;
@@ -1219,7 +1246,7 @@ ad3altili(ILI_OP opc, int opn1, int opn2, int opn3, int alt)
   newili.opnd[2] = opn3;
   newili.opnd[3] = 0;
   newili.opnd[4] = 0;
-  ilix = get_ili((ILI *)&newili);
+  ilix = get_ili(&newili);
   if (ILI_ALT(ilix) == 0)
     ILI_ALT(ilix) = alt;
   return ilix;
@@ -1251,7 +1278,7 @@ ad4altili(ILI_OP opc, int opn1, int opn2, int opn3, int opn4, int alt)
   newili.opnd[2] = opn3;
   newili.opnd[3] = opn4;
   newili.opnd[4] = 0;
-  ilix = get_ili((ILI *)&newili);
+  ilix = get_ili(&newili);
   if (ILI_ALT(ilix) == 0)
     ILI_ALT(ilix) = alt;
   return ilix;
@@ -1718,11 +1745,11 @@ lg(unsigned d)
 } /* lg */
 
 static int
-lg64(UINT64 d)
+lg64(DBLUINT64 d)
 {
   int i = 0;
-  UINT64 twoi = {0x0, 0x1};
-  UINT64 dd;
+  DBLUINT64 twoi = {0x0, 0x1};
+  DBLUINT64 dd;
 
   dd[0] = d[0];
   dd[1] = d[1];
@@ -1741,20 +1768,20 @@ lg64(UINT64 d)
  * (don't want 2**(2*N))
  */
 static int shpost;
-static INT64 mrecip;
-static INT64 twon, twonm1;
+static DBLINT64 mrecip;
+static DBLINT64 twon, twonm1;
 
 void
 choose_multiplier(int N, unsigned dd, int prec)
 {
-  INT64 mlow, mhigh, d, mlow2, mhigh2;
+  DBLINT64 mlow, mhigh, d, mlow2, mhigh2;
   int l;
 
   l = lg(dd); /* ceiling(lg(d)) */
   shpost = l;
 
   d[0] = 0;
-  d[1] = dd; /* INT64 copy of d */
+  d[1] = dd; /* DBLINT64 copy of d */
 
   twon[0] = 0; /* twon is 2**N, used for comparisons */
   twon[1] = 1;
@@ -1798,7 +1825,7 @@ static INT128 mrecip_128;
 static INT128 twon_128, twonm1_128;
 
 void
-choose_multiplier_64(int N, UINT64 dd, int prec)
+choose_multiplier_64(int N, DBLUINT64 dd, int prec)
 {
   INT128 mlow, mhigh, d, mlow2, mhigh2;
   int l;
@@ -1809,7 +1836,7 @@ choose_multiplier_64(int N, UINT64 dd, int prec)
   d[0] = 0;
   d[1] = 0;
   d[2] = dd[0];
-  d[3] = dd[1]; /* INT64 copy of d */
+  d[3] = dd[1]; /* DBLINT64 copy of d */
 
   /* twon is 2**N, used for comparisons */
   twon_128[0] = 0;
@@ -2100,9 +2127,10 @@ reciprocal_division(int n, INT divisor, int sgnd)
       q = ad1ili(IL_INEG, q);
     }
   } else {
-    INT64 twol;
+    DBLINT64 twol;
     int shpre = 0;
-    INT64 one_64 = {0x0, 0x1}, divisor64 = {0x0, (int) udiv};
+    DBLINT64 one_64 = {0x0, 0x1};
+    DBLINT64 divisor64 = {0x0, (int)udiv};
     const int l = lg(udiv);
 
     shf64(one_64, l, twol);
@@ -2155,7 +2183,7 @@ reciprocal_division(int n, INT divisor, int sgnd)
 }
 
 static int
-reciprocal_division_64(int n, INT64 divisor, int sgnd)
+reciprocal_division_64(int n, DBLINT64 divisor, int sgnd)
 {
 
   /* TBD: 64-bit divides */
@@ -2163,10 +2191,10 @@ reciprocal_division_64(int n, INT64 divisor, int sgnd)
   int l, mp, sh, N;
   int t1, t2, q0, q3, q, recipsym;
   /*unsigned udiv;*/
-  UINT64 udiv;
-  INT64 tmp_64;
-  static INT64 zero_64 = {0, 0}, one_64 = {0x0, 0x1};
-  static INT64 min_neg_64 = {(INT)0x80000000, 0x0};
+  DBLUINT64 udiv;
+  DBLINT64 tmp_64;
+  static DBLINT64 zero_64 = {0, 0}, one_64 = {0x0, 0x1};
+  static DBLINT64 min_neg_64 = {(INT)0x80000000, 0x0};
 
   /* edge case, doesn't work */
   if (cmp64(divisor, zero_64) == 0)
@@ -2221,7 +2249,7 @@ reciprocal_division_64(int n, INT64 divisor, int sgnd)
       q = ad1ili(IL_KNEG, q);
     }
   } else {
-    INT64 twol;
+    DBLINT64 twol;
     int shpre = 0;
     const int l = lg64(udiv);
 
@@ -2293,7 +2321,7 @@ reciprocal_mod(int n, int d, int sgnd)
 }
 
 static int
-reciprocal_mod_64(int n, INT64 d, int sgnd)
+reciprocal_mod_64(int n, DBLINT64 d, int sgnd)
 {
   int div, kcon;
   int mul, sub, t0;
@@ -3398,13 +3426,15 @@ addarth(ILI *ilip)
         return op2;
       break;
     }
-  like_aadd:
+  like_aadd: {
+    SPTR sptr_con2v1;
     if (con2v1 == 0 && aconoff2v == 0)
       return op1;
-    tmp = red_aadd(op1, (SPTR)con2v1, aconoff2v, ilip->opnd[2]); // ???
+    sptr_con2v1 = (SPTR)con2v1;
+    tmp = red_aadd(op1, sptr_con2v1, aconoff2v, ilip->opnd[2]);
     if (tmp)
       return tmp;
-    break;
+    } break;
 
   case IL_ISUB:
     if (ILI_OPC(op2) == IL_INEG)
@@ -3542,8 +3572,8 @@ addarth(ILI *ilip)
   case IL_SCMPLXSUB:
 #ifdef FPSUB2ADD
     if (!flg.ieee && ncons >= 2) {
-      xfsub((INT)0, con2v1, &res.numi[0]);
-      xfsub((INT)0, con2v2, &res.numi[1]);
+      xfsub(0, con2v1, &res.numi[0]);
+      xfsub(0, con2v2, &res.numi[1]);
       op2 = ad1ili(IL_SCMPLXCON, getcon(res.numi, DT_CMPLX));
       opc = IL_SCMPLXADD;
       goto like_scmplxadd;
@@ -3711,6 +3741,7 @@ addarth(ILI *ilip)
       return ad1ili(IL_KNEG, ad2ili(IL_KMUL, op1, ILI_OPND(op2, 1)));
     }
     break;
+
   case IL_FMUL:
     if (!flg.ieee) {
       if (ncons == 2) {
@@ -3732,15 +3763,17 @@ addarth(ILI *ilip)
         goto add_rcon;
       }
     }
-    /* FMUL FNEG x, y --> FNEG FMUL x,y */
+    /* FMUL FNEG x, FNEG y --> FMUL x,y */
     if (ILI_OPC(op1) == IL_FNEG && ILI_OPC(op2) == IL_FNEG) {
       op1 = ILI_OPND(op1, 1);
       op2 = ILI_OPND(op2, 1);
       break;
     }
+    /* FMUL FNEG x, y --> FNEG FMUL x,y */
     if (ILI_OPC(op1) == IL_FNEG) {
       return ad1ili(IL_FNEG, ad2ili(IL_FMUL, ILI_OPND(op1, 1), op2));
     }
+    /* FMUL x, FNEG y --> FNEG FMUL x,y */
     if (ILI_OPC(op2) == IL_FNEG) {
       return ad1ili(IL_FNEG, ad2ili(IL_FMUL, op1, ILI_OPND(op2, 1)));
     }
@@ -4190,10 +4223,10 @@ addarth(ILI *ilip)
           }
         }
       }
-#endif /*} hardware divide */
+#endif /* defined(TARGET_X8664) || defined(TARGET_POWER) */
     }
     break;
-#endif
+#endif /*} hardware divide */
 #ifndef TM_FDIV /*{ no hardware divide */
 #ifdef TM_FRCP  /*{ mult - recip */
     /* perform divide by reciprocal approximation */
@@ -5325,7 +5358,11 @@ addarth(ILI *ilip)
     } else if (ncons == 3) {
       tmp = con2v2;
       if (SHIFTOK(tmp)) {
-        res.numi[1] = URSHIFT(con1v2, tmp);
+        if (ishft) {
+          res.numi[1] = ARSHIFT(con1v2, tmp);
+        } else {
+          res.numi[1] = URSHIFT(con1v2, tmp);
+        }
         goto add_icon;
       }
     }
@@ -6794,19 +6831,29 @@ addarth(ILI *ilip)
     root = "log10";
     mth_fn = MTH_log10;
     goto do_vect1;
+  case IL_VFLOOR:
+    root = "floor";
+    mth_fn = MTH_floor;
+    goto do_vect1;
+  case IL_VCEIL:
+    root = "ceil";
+    mth_fn = MTH_ceil;
+    goto do_vect1;
+  case IL_VAINT:
+    root = "aint";
+    mth_fn = MTH_aint;
+    goto do_vect1;
   do_vect1:
     mask_ili = ilip->opnd[1];
     if (ILI_OPC(mask_ili) == IL_NULL) /* no mask */
     {
       ilix = ad_func(IL_NONE, IL_GJSR,
-                     vect_math(mth_fn, root, 1, (DTYPE)ilip->opnd[2], // ???
-                               opc, 0, 0, false),
+                     vect_math(mth_fn, root, 1, DTypeILIOpnd(ilip, 2), opc, 0, 0, false),
                      1, op1);
     } else /* need to generate call to mask version */
     {
       ilix = ad_func(IL_NONE, IL_GJSR,
-                     vect_math(mth_fn, root, 2, (DTYPE)ilip->opnd[2], // ???
-                               opc, 0, 0, true),
+                     vect_math(mth_fn, root, 2, DTypeILIOpnd(ilip, 2), opc, 0, 0, true),
                      2, op1, mask_ili);
     }
     return ad3altili(opc, op1, mask_ili, ilip->opnd[2], ilix);
@@ -6820,17 +6867,17 @@ addarth(ILI *ilip)
     goto do_vect2;
   do_vect2:
     mask_ili = ilip->opnd[2];
-    if (ILI_OPC(mask_ili) == IL_NULL) /* no mask */
+    if (ILI_OPC(mask_ili) == IL_NULL)
     {
+      /* no mask */
       ilix = ad_func(IL_NONE, IL_GJSR,
-                     vect_math(mth_fn, root, 2, (DTYPE)ilip->opnd[3], // ???
-                               opc, 0, 0, false),
+                     vect_math(mth_fn, root, 2, DTypeILIOpnd(ilip, 3), opc, 0, 0, false),
                      2, op1, op2);
-    } else /* need to generate call to mask version */
+    } else
     {
+      /* need to generate call to mask version */
       ilix = ad_func(IL_NONE, IL_GJSR,
-                     vect_math(mth_fn, root, 3, (DTYPE)ilip->opnd[3], // ???
-                               opc, 0, 0, true),
+                     vect_math(mth_fn, root, 3, DTypeILIOpnd(ilip, 3), opc, 0, 0, true),
                      3, op1, op2, mask_ili);
     }
     return ad4altili(opc, op1, op2, mask_ili, ilip->opnd[3], ilix);
@@ -6906,6 +6953,19 @@ addarth(ILI *ilip)
 #endif
         vdt2 = DT_INT;
       }
+    } else if (IL_TYPE(ILI_OPC(op2)) == ILTY_MOVE) {
+      switch(IL_RES(ILI_OPC(op2)))
+      {
+        case ILIA_IR:
+          vdt2 = DT_INT;
+          break;
+        case ILIA_KR:
+          vdt2 = DT_INT8;
+          break;
+        default:
+          assert(0, "addarth(): bad move result for operand 2", 
+                 IL_RES(ILI_OPC(op2)), ERR_Fatal);
+      }
     } else
       assert(0, "addarth(): bad type for operand 2", IL_TYPE(ILI_OPC(op2)),
              ERR_Fatal);
@@ -6913,14 +6973,12 @@ addarth(ILI *ilip)
     if (ILI_OPC(mask_ili) == IL_NULL) /* no mask */
     {
       ilix = ad_func(IL_NONE, IL_GJSR,
-                     vect_math(mth_fn, root, 2, (DTYPE)ilip->opnd[3], // ???
-                               opc, vdt1, vdt2, false),
+                     vect_math(mth_fn, root, 2, DTypeILIOpnd(ilip, 3), opc, vdt1, vdt2, false),
                      2, op1, op2);
     } else /* need to generate call to mask version */
     {
       ilix = ad_func(IL_NONE, IL_GJSR,
-                     vect_math(mth_fn, root, 3, (DTYPE)ilip->opnd[3], // ???
-                               opc, vdt1, vdt2, true),
+                     vect_math(mth_fn, root, 3, DTypeILIOpnd(ilip, 3),   opc, vdt1, vdt2, true),
                      3, op1, op2, mask_ili);
     }
     return ad4altili(opc, op1, op2, mask_ili, ilip->opnd[3], ilix);
@@ -6941,7 +6999,128 @@ addarth(ILI *ilip)
     break;
 #endif /* LONG_DOUBLE_FLOAT128 */
 
+  case IL_FCEIL:
+    if (XBIT_NEW_MATH_NAMES) {
+      fname = make_math(MTH_ceil, &funcsptr, 1, false, DT_FLOAT, 1, DT_FLOAT);
+      ilix = ad_func(IL_spfunc, IL_QJSR, fname, 1, op1);
+      ilix = ad1altili(opc, op1, ilix);
+      return ilix;
+    }
+#if defined(TARGET_LLVM_ARM) || defined(TARGET_WIN)
+    else {
+      (void)mk_prototype(MTH_I_FCEIL, "f pure", DT_FLOAT, 1, DT_FLOAT);
+      ilix = ad_func(IL_spfunc, IL_QJSR, MTH_I_FCEIL, 1, op1);
+      return ad1altili(opc, op1, ilix);
+    }
+#else
+    else
+      interr("addarth: old math name for ili not handled",
+             opc, ERR_Informational);
+#endif
+    break;
+
+  case IL_DCEIL:
+    if (XBIT_NEW_MATH_NAMES) {
+      fname = make_math(MTH_ceil, &funcsptr, 1, false, DT_DBLE, 1, DT_DBLE);
+      ilix = ad_func(IL_dpfunc, IL_QJSR, fname, 1, op1);
+      ilix = ad1altili(opc, op1, ilix);
+      return ilix;
+    }
+#if defined(TARGET_LLVM_ARM) || defined(TARGET_WIN)
+    else {
+      (void)mk_prototype(MTH_I_DCEIL, "f pure", DT_DBLE, 1, DT_DBLE);
+      ilix = ad_func(IL_dpfunc, IL_QJSR, MTH_I_DCEIL, 1, op1);
+      return ad1altili(opc, op1, ilix);
+    }
+#else
+    else
+      interr("addarth: old math name for ili not handled",
+             opc, ERR_Informational);
+#endif
+    break;
+
+  case IL_FFLOOR:
+    if (XBIT_NEW_MATH_NAMES) {
+      fname = make_math(MTH_floor, &funcsptr, 1, false, DT_FLOAT, 1, DT_FLOAT);
+      ilix = ad_func(IL_spfunc, IL_QJSR, fname, 1, op1);
+      ilix = ad1altili(opc, op1, ilix);
+      return ilix;
+    }
+#if defined(TARGET_LLVM_ARM) || defined(TARGET_WIN)
+    else {
+      (void)mk_prototype(MTH_I_FFLOOR, "f pure", DT_FLOAT, 1, DT_FLOAT);
+      ilix = ad_func(IL_spfunc, IL_QJSR, MTH_I_FFLOOR, 1, op1);
+      return ad1altili(opc, op1, ilix);
+    }
+#else
+    else
+      interr("addarth: old math name for ili not handled",
+             opc, ERR_Informational);
+#endif
+    break;
+
+  case IL_DFLOOR:
+    if (XBIT_NEW_MATH_NAMES) {
+      fname = make_math(MTH_floor, &funcsptr, 1, false, DT_DBLE, 1, DT_DBLE);
+      ilix = ad_func(IL_dpfunc, IL_QJSR, fname, 1, op1);
+      ilix = ad1altili(opc, op1, ilix);
+      return ilix;
+    }
+#if defined(TARGET_LLVM_ARM) || defined(TARGET_WIN)
+    else {
+      (void)mk_prototype(MTH_I_DFLOOR, "f pure", DT_DBLE, 1, DT_DBLE);
+      ilix = ad_func(IL_dpfunc, IL_QJSR, MTH_I_DFLOOR, 1, op1);
+      return ad1altili(opc, op1, ilix);
+    }
+#else
+    else
+      interr("addarth: old math name for ili not handled",
+             opc, ERR_Informational);
+#endif
+    break;
+
+  case IL_AINT:
+    if (XBIT_NEW_MATH_NAMES) {
+      fname = make_math(MTH_aint, &funcsptr, 1, false, DT_FLOAT, 1, DT_FLOAT);
+      ilix = ad_func(IL_spfunc, IL_QJSR, fname, 1, op1);
+      ilix = ad1altili(opc, op1, ilix);
+      return ilix;
+    }
+#if defined(TARGET_LLVM_ARM) || defined(TARGET_WIN)
+    else {
+      (void)mk_prototype(MTH_I_AINT, "f pure", DT_FLOAT, 1, DT_FLOAT);
+      ilix = ad_func(IL_spfunc, IL_QJSR, MTH_I_AINT, 1, op1);
+      return ad1altili(opc, op1, ilix);
+    }
+#else
+    else
+      interr("addarth: old math name for ili not handled",
+             opc, ERR_Informational);
+#endif
+    break;
+
+  case IL_DINT:
+    if (XBIT_NEW_MATH_NAMES) {
+      fname = make_math(MTH_aint, &funcsptr, 1, false, DT_DBLE, 1, DT_DBLE);
+      ilix = ad_func(IL_dpfunc, IL_QJSR, fname, 1, op1);
+      ilix = ad1altili(opc, op1, ilix);
+      return ilix;
+    }
+#if defined(TARGET_LLVM_ARM) || defined(TARGET_WIN)
+    else {
+      (void)mk_prototype(MTH_I_DINT, "f pure", DT_DBLE, 1, DT_DBLE);
+      ilix = ad_func(IL_dpfunc, IL_QJSR, MTH_I_DINT, 1, op1);
+      return ad1altili(opc, op1, ilix);
+    }
+#else
+    else
+      interr("addarth: old math name for ili not handled",
+             opc, ERR_Informational);
+#endif
+    break;
+
   default:
+
 #if DEBUG
     interr("addarth:ili not handled", opc, ERR_Informational);
 #endif
@@ -6953,7 +7132,7 @@ addarth(ILI *ilip)
   newili.opnd[1] = op2;
   for (i = 2; i < IL_OPRS(opc); ++i)
     newili.opnd[i] = ilip->opnd[i];
-  return get_ili((ILI *)&newili);
+  return get_ili(&newili);
 
 add_icon:
   return ad_icon(res.numi[1]);
@@ -7105,7 +7284,7 @@ red_iadd(int ilix, INT con)
         newili.opnd[0] = New;
         newili.opnd[1] = lop;
       }
-      return get_ili((ILI *)&newili);
+      return get_ili(&newili);
     }
     New = red_iadd(lop, con);
     if (New != 0) {
@@ -7117,7 +7296,7 @@ red_iadd(int ilix, INT con)
         newili.opnd[0] = New;
         newili.opnd[1] = rop;
       }
-      return get_ili((ILI *)&newili);
+      return get_ili(&newili);
     }
     break;
 
@@ -7132,7 +7311,7 @@ red_iadd(int ilix, INT con)
       newili.opc = opc;
       newili.opnd[0] = New;
       newili.opnd[1] = rop;
-      return get_ili((ILI *)&newili);
+      return get_ili(&newili);
     }
     if (opc == IL_ISUB && con > 0 && ILI_OPC(rop) == IL_ICON) {
       UINT uv = CONVAL2G(ILI_OPND(rop, 1));
@@ -7160,7 +7339,7 @@ red_iadd(int ilix, INT con)
           newili.opnd[1] = ad_icon(-val);
         }
       }
-      return get_ili((ILI *)&newili);
+      return get_ili(&newili);
     }
     break;
   default:;
@@ -7214,7 +7393,7 @@ red_kadd(int ilix, INT con[2])
         newili.opnd[0] = New;
         newili.opnd[1] = lop;
       }
-      return get_ili((ILI *)&newili);
+      return get_ili(&newili);
     }
     New = red_kadd(lop, con);
     if (New != 0) {
@@ -7226,7 +7405,7 @@ red_kadd(int ilix, INT con[2])
         newili.opnd[0] = New;
         newili.opnd[1] = rop;
       }
-      return get_ili((ILI *)&newili);
+      return get_ili(&newili);
     }
     break;
 
@@ -7241,7 +7420,7 @@ red_kadd(int ilix, INT con[2])
       newili.opc = opc;
       newili.opnd[0] = New;
       newili.opnd[1] = rop;
-      return get_ili((ILI *)&newili);
+      return get_ili(&newili);
     }
     neg64(con, tmp);
     New = red_kadd(rop, tmp);
@@ -7261,7 +7440,7 @@ red_kadd(int ilix, INT con[2])
           newili.opnd[1] = ad1ili(IL_KCON, getcon(val, DT_INT8));
         }
       }
-      return get_ili((ILI *)&newili);
+      return get_ili(&newili);
     }
     break;
   } /*****  end of switch(ILI_OPC(ilix))  *****/
@@ -7322,7 +7501,7 @@ red_aadd(int ilix, SPTR sym, ISZ_T off, int scale)
       newili.opnd[0] = New;
       newili.opnd[1] = rop;
       newili.opnd[2] = oldsc;
-      return get_ili((ILI *)&newili);
+      return get_ili(&newili);
     }
     if (scale < oldsc)
       break;
@@ -7335,7 +7514,7 @@ red_aadd(int ilix, SPTR sym, ISZ_T off, int scale)
       newili.opnd[0] = lop;
       newili.opnd[1] = New;
       newili.opnd[2] = oldsc;
-      return get_ili((ILI *)&newili);
+      return get_ili(&newili);
     }
     switch (ILI_OPC(rop)) {
     default:
@@ -7350,11 +7529,11 @@ red_aadd(int ilix, SPTR sym, ISZ_T off, int scale)
       newili.opnd[0] = lop;
       newili.opnd[1] = New;
       newili.opnd[2] = scale;
-      lop = (SPTR)get_ili((ILI *)&newili); // ???
+      lop = sptrGetILI(&newili);
       newili.opnd[0] = lop;
       newili.opnd[1] = rop;
       newili.opnd[2] = oldsc;
-      return get_ili((ILI *)&newili);
+      return get_ili(&newili);
     }
     break;
 
@@ -7368,7 +7547,7 @@ red_aadd(int ilix, SPTR sym, ISZ_T off, int scale)
       newili.opnd[0] = New;
       newili.opnd[1] = rop;
       newili.opnd[2] = oldsc;
-      return get_ili((ILI *)&newili);
+      return get_ili(&newili);
     }
     if (scale < oldsc)
       break;
@@ -7379,7 +7558,7 @@ red_aadd(int ilix, SPTR sym, ISZ_T off, int scale)
         newili.opnd[0] = lop;
         newili.opnd[1] = New;
         newili.opnd[2] = oldsc;
-        return get_ili((ILI *)&newili);
+        return get_ili(&newili);
       }
     }
     break;
@@ -7495,7 +7674,7 @@ red_minmax(ILI_OP opc, int op1, int op2)
   newili.opc = opc;
   newili.opnd[0] = op1;
   newili.opnd[1] = op2;
-  return get_ili((ILI *)&newili);
+  return get_ili(&newili);
 }
 
 /** \brief Transform -(c<OP>x<OP>y) into (-c)<OP>x<OP>y; OP is a mult or divide
@@ -7512,7 +7691,8 @@ red_negate(int old, ILI_OP neg_opc, int mult_opc, int div_opc)
     return ad2ili(ILI_OPC(old), op1, op2); /* could be mult or divide */
   }
   if (IL_TYPE(ILI_OPC(op1)) == ILTY_CONS) {
-    if (!XBIT(15, 0x4) || (div_opc != IL_FDIV && div_opc != IL_DDIV)) {
+    if (!XBIT(15, 0x4) || 
+	(div_opc != IL_FDIV && div_opc != IL_DDIV)) {
       /* don't do if mult by recip enabled */
       op1 = ad1ili(neg_opc, op1);
       return ad2ili(ILI_OPC(old), op1, op2); /* should only be a divide */
@@ -8434,6 +8614,8 @@ fold_jmp:
   return 0;
 }
 
+bool is_floating_comparison_opcode(ILI_OP opc);
+
 /** \brief adds a branch ili by complementing the condition
  *
  * This routine adds a branch ili whose condition is the complement of the
@@ -8451,8 +8633,7 @@ compl_br(int ilix, int lbl)
   i = ilis[opc].oprs;
   New.opc = opc;
   New.opnd[--i] = lbl;
-  if (opc == IL_FCJMP || opc == IL_DCJMP || opc == IL_FCJMPZ ||
-      opc == IL_DCJMPZ) {
+  if (is_floating_comparison_opcode(opc)) {
     New.opnd[i - 1] = complement_ieee_cc(CC_ILI_OPND(ilix, i));
   } else {
     New.opnd[i - 1] = complement_int_cc(CC_ILI_OPND(ilix, i));
@@ -9346,6 +9527,21 @@ rewr_(int tree)
         newopnd = opnd;
       } else {
         newopnd = rewr_(opnd);
+        if (newopnd != opnd && IL_RES(ILI_OPC(opnd)) == ILIA_AR) {
+          /* The problem is Fortran Cray pointers, where integer-valued
+           * expressions are stored into integer pointers, which are then
+           * used as pointer values.  The integer-valued pointer is often
+           * converted from an address-valued expression (ACON or the like)
+           * and here we want the address-valued expression or to move it
+           * to an address-valued expression */
+          if (ILI_OPC(newopnd) == IL_AKMV || ILI_OPC(newopnd) == IL_AIMV) {
+            newopnd = ILI_OPND(newopnd, 1);	/* get the address value */
+          } else if (IL_RES(ILI_OPC(newopnd)) == ILIA_KR) {
+            newopnd = ad1ili(IL_KAMV, newopnd);
+          } else if (IL_RES(ILI_OPC(newopnd)) == ILIA_IR) {
+            newopnd = ad1ili(IL_IAMV, newopnd);
+          }
+        }
       }
       newili.opnd[i - 1] = newopnd;
       if (newopnd != opnd)
@@ -9792,7 +9988,7 @@ simplified_cmp_ili(int cmp_ili)
     shared_bin_cmp:
       new_cc = CC_ILI_OPND(new_ili, 3);
       if (invert_cc) {
-        if (new_opc == IL_FCMP || new_opc == IL_DCMP)
+        if (is_floating_comparison_opcode(new_opc))
           new_cc = complement_ieee_cc(new_cc);
         else
           new_cc = complement_int_cc(new_cc);
@@ -9827,7 +10023,7 @@ simplified_cmp_ili(int cmp_ili)
     shared_una_cmp:
       new_cc = CC_ILI_OPND(new_ili, 2);
       if (invert_cc) {
-        if (new_opc == IL_FCMPZ || new_opc == IL_DCMPZ)
+        if (is_floating_comparison_opcode(new_opc))
           new_cc = complement_ieee_cc(new_cc);
         else
           new_cc = complement_int_cc(new_cc);
@@ -10078,7 +10274,7 @@ dump_ili(FILE *f, int i)
       case IL_ST:
       case IL_LDKR:
       case IL_STKR:
-        msz = dump_msz((MSZ)opn); // ???
+        msz = dump_msz(ConvertMSZ(opn));
         fprintf(f, " %5s ", msz);
         break;
       case IL_ATOMICRMWI:
@@ -10089,7 +10285,7 @@ dump_ili(FILE *f, int i)
         if (j == 4)
           dump_atomic_info(f, atomic_info(i));
         else if (j == 5)
-          fprintf(f, " %s", atomic_rmw_op_name((ATOMIC_RMW_OP)opn)); // ???
+          fprintf(f, " %s", atomic_rmw_op_name(ConvertATOMIC_RMW_OP(opn)));
         else
           fprintf(f, " %d", (int)((short)opn));
         break;
@@ -10689,6 +10885,7 @@ prilitree(int i)
     fprintf(gbl.dbgfil, "%s0", opval);
     break;
 
+  case IL_HFMAX:
   case IL_FMAX:
   case IL_DMAX:
   case IL_KMAX:
@@ -10696,6 +10893,7 @@ prilitree(int i)
     n = 2;
     opval = "max";
     goto intrinsic;
+  case IL_HFMIN:
   case IL_FMIN:
   case IL_DMIN:
   case IL_KMIN:
@@ -11473,10 +11671,20 @@ get_encl_function(int sptr)
   return enclsptr;
 }
 
+/**
+ * \brief Finds the corresponding host function of the device outlined function.
+
+ */
+static SPTR
+find_host_function() {
+  SPTR current_function = GBL_CURRFUNC;
+  return current_function;
+}
+
 bool
-is_llvm_local_private(int sptr)
-{
+is_llvm_local_private(int sptr) {
   const int enclsptr = get_encl_function(sptr);
+  const SPTR current_function = find_host_function();
   if (enclsptr && !OUTLINEDG(enclsptr))
     return false;
   /* Some compiler generated private variables does not have ENCLFUNC set
@@ -11486,7 +11694,7 @@ is_llvm_local_private(int sptr)
    */
   if (!enclsptr && SCG(sptr) == SC_PRIVATE && OUTLINEDG(GBL_CURRFUNC))
     return true;
-  return enclsptr && (SC_PRIVATE == SCG(sptr)) && (enclsptr == GBL_CURRFUNC);
+  return enclsptr && (SC_PRIVATE == SCG(sptr)) && (enclsptr == current_function);
 }
 
 bool
@@ -11583,16 +11791,17 @@ ll_uplevel_addr_ili(SPTR sptr, bool is_task_priv)
   isLocalPriv = is_llvm_local_private(sptr);
   if (flg.smp) {
     if (!is_task_priv && isLocalPriv) {
-      return ad_acon(sptr, (INT)0);
+        return ad_acon(sptr, (INT)0);
     }
   }
 
   /* Certain variable: SC_STATIC is set in the backend but PARREF flag may
    * have been set in the front end already.
    */
-  if (SCG(sptr) == SC_STATIC && !THREADG(sptr))
+  if (SCG(sptr) == SC_STATIC && !THREADG(sptr)
+  )
     return ad_acon(sptr, (INT)0);
-  if (SCG(aux.curr_entry->uplevel) == SC_DUMMY) {
+    if (SCG(aux.curr_entry->uplevel) == SC_DUMMY) {
     SPTR asym = mk_argasym(aux.curr_entry->uplevel);
     int anme = addnme(NT_VAR, asym, 0, (INT)0);
     ilix = ad_acon(asym, 0);
@@ -11609,7 +11818,7 @@ ll_uplevel_addr_ili(SPTR sptr, bool is_task_priv)
     ilix = ad2ili(IL_LDA, ilix, basenm);
   }
   if (TASKFNG(GBL_CURRFUNC) || ISTASKDUPG(GBL_CURRFUNC)) {
-      if (TASKG(sptr)) { 
+      if (TASKG(sptr)) {
         if (is_task_priv) {
           if (ISTASKDUPG(GBL_CURRFUNC)) {
             SPTR arg = ll_get_hostprog_arg(GBL_CURRFUNC, 1);
@@ -11643,11 +11852,16 @@ ll_uplevel_addr_ili(SPTR sptr, bool is_task_priv)
         } else
         offset = ll_get_uplevel_offset(sptr);
       }
-  } else {
+  }
+  else if (OMPTEAMPRIVATEG(sptr)) {
+    offset = ADDRESSG(sptr);
+  }
+  else {
     offset = ll_get_uplevel_offset(sptr);
   }
   ilix = ad3ili(IL_AADD, ilix, ad_aconi(offset), 0);
-  return ad2ili(IL_LDA, ilix, addnme(NT_IND, sptr, basenm, 0));
+    ilix = ad2ili(IL_LDA, ilix, addnme(NT_IND, sptr, basenm, 0));
+  return ilix;
 }
 
 int
@@ -11711,6 +11925,9 @@ mk_address(SPTR sptr)
   }
 
   /* Make an address for an outlined function variable */
+#ifdef OMP_OFFLOAD_LLVM
+  if(!(gbl.outlined && flg.omptarget && gbl.ompaccel_intarget))
+#endif
   if ((PARREFG(sptr) || TASKG(sptr)) &&
       (gbl.outlined || ISTASKDUPG(GBL_CURRFUNC))) {
     return ll_uplevel_addr_ili(sptr, is_task_priv);
@@ -12043,6 +12260,9 @@ ili_get_vect_dtype(int ilix)
   case IL_VLOG10:
   case IL_VRCP:
   case IL_VRSQRT:
+  case IL_VFLOOR:
+  case IL_VCEIL:
+  case IL_VAINT:
   case IL_VLD:
   case IL_VLDU:
   case IL_VADD:
@@ -12356,6 +12576,7 @@ int
 is_cseili_opcode(ILI_OP opc)
 {
   switch (opc) {
+  case IL_CSE:
   case IL_CSEIR:
   case IL_CSESP:
   case IL_CSEDP:
@@ -13573,7 +13794,8 @@ make_math_name(MTH_FN fn, int vectlen, bool mask, DTYPE res_dt)
   static char *fn2str[] = {"acos", "asin",  "atan",  "atan2", "cos",    "cosh",
                            "div",  "exp",   "log",   "log10", "pow",    "powi",
                            "powk", "powi1", "powk1", "sin",   "sincos", "sinh",
-                           "sqrt", "tan",   "tanh",  "mod"};
+                           "sqrt", "tan",   "tanh",  "mod", "floor", "ceil",
+                           "aint"};
   char *fstr;
   char ftype = 'f';
   if (flg.ieee)
@@ -13637,7 +13859,7 @@ atomic_encode_aux(MSZ msz, SYNC_SCOPE scope, ATOMIC_ORIGIN origin,
                   ATOMIC_RMW_OP op)
 {
   union ATOMIC_ENCODER u;
-  DEBUG_ASSERT(sizeof(ATOMIC_INFO) <= sizeof(int),
+  DEBUG_ASSERT(sizeof(u.info) <= sizeof(int),
                "need to reimplement atomic_encode");
   DEBUG_ASSERT((unsigned)origin <= (unsigned)AORG_MAX_DEF,
                "atomic_encode_ld_st: bad origin");
@@ -13679,9 +13901,14 @@ atomic_encode_rmw(MSZ msz, SYNC_SCOPE scope, ATOMIC_ORIGIN origin,
 ATOMIC_INFO
 atomic_decode(int encoding)
 {
+  ATOMIC_INFO result;
   union ATOMIC_ENCODER u;
   u.encoding = encoding;
-  return u.info;
+  result.msz = (MSZ) u.info.msz;
+  result.op = (ATOMIC_RMW_OP) u.info.op;
+  result.origin = (ATOMIC_ORIGIN) u.info.origin;
+  result.scope = (SYNC_SCOPE) u.info.scope;
+  return result;
 }
 
 /** Get index of ATOMIC_INFO operand for a given ILI instruction. */
@@ -14234,3 +14461,4 @@ imin_ili_ili(int leftx, int rightx)
   }
   return ilix;
 } /* imin_ili_ili */
+

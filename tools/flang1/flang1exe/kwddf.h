@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2005-2018, NVIDIA CORPORATION.  All rights reserved.
+ * Copyright (c) 2005-2019, NVIDIA CORPORATION.  All rights reserved.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -163,6 +163,7 @@ static KWORD t1[] = {         /* normal keyword table */
                      {"enum", TK_ENUM},
                      {"enumerator", TK_ENUMERATOR},
                      {"equivalence", TK_EQUIV},
+                     {"errorstop", TK_ERRORSTOP},
                      {"exit", TK_EXIT},
                      {"extends", TK_EXTENDS},
                      {"external", TK_EXTERNAL},
@@ -212,6 +213,7 @@ static KWORD t1[] = {         /* normal keyword table */
                      {"protected", TK_PROTECTED},
                      {"public", TK_PUBLIC},
                      {"pure", TK_PURE},
+                     {"quiet", TK_QUIET},
                      {"read", TK_READ},
                      {"real", TK_REAL},
                      {"record", TK_RECORD},
@@ -390,7 +392,7 @@ static KWORD t5[] = {
     {"linear", TK_LINEAR},
     {"link", TK_LINK},
     {"local", TK_PRIVATE},
-    {"map", TK_MAP},
+    {"map", TK_MP_MAP},
     {"mergeable", TK_MERGEABLE},
     {"mp_schedtype", TK_MP_SCHEDTYPE},
     {"nogroup", TK_NOGROUP},
@@ -407,6 +409,7 @@ static KWORD t5[] = {
     {"reduction", TK_REDUCTION},
     {"safelen", TK_SAFELEN},
     {"schedule", TK_SCHEDULE},
+    {"seq_cst", TK_SEQ_CST},
     {"share", TK_SHARED},
     {"shared", TK_SHARED},
     {"simd", TK_SIMD},

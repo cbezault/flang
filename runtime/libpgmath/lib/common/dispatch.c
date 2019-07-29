@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2017-2018, NVIDIA CORPORATION.  All rights reserved.
+ * Copyright (c) 2017-2019, NVIDIA CORPORATION.  All rights reserved.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -52,24 +52,68 @@
  *
  */
 
+#if     defined(TARGET_WIN_X8664)
+/*
+ * The Windows system header files are missing the argument list in the
+ * following function declarations.  Without the argument list, albeit void,
+ * dispatch.c cannot be compiled with the vectorcall ABI.
+ *
+ * Open Tools 10:
+ *  I_RpcMgmtEnableDedicatedThreadPool
+ * Visual Studio 2015:
+ *  EnableMouseInPointerForThread
+ *  GetThreadDpiHostingBehavior
+ */
+
+#define I_RpcMgmtEnableDedicatedThreadPool(...) \
+        I_RpcMgmtEnableDedicatedThreadPool(void)
+#define EnableMouseInPointerForThread(...)      \
+        EnableMouseInPointerForThread(void)
+#define GetThreadDpiHostingBehavior(...)        \
+        GetThreadDpiHostingBehavior(void)
+#endif
+
 #include <stdbool.h>
 #include <string.h>
 #include <ctype.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdint.h>
+
 #include <string.h>
 #include <time.h>
-#include <unistd.h>
 #include <inttypes.h>
-#ifdef TARGET_LINUX_X8664
+
+#ifndef	TARGET_WIN_X8664
+  #include <unistd.h>
+  #define SLEEP(t) sleep(t)
+#else       // #ifndef _WIN64
+  #include <windows.h>
+  #include <io.h>
+  #define SLEEP(t) Sleep(t*1000)
+  #define strcasecmp _stricmp
+  #undef  stderr
+  #define stderr  __io_stderr()
+  extern  FILE    *__io_stderr(void);
+#endif      // #ifndef _WIN64
+
+#if defined(TARGET_LINUX_X8664) || defined(TARGET_LINUX_POWER) || defined(TARGET_WIN_X8664)
 #include <malloc.h>
 #else
 #include <sched.h>
 #endif
+
+
 #include "mth_tbldefs.h"
-#if defined(TARGET_LINUX_X8664) || defined(TARGET_OSX_X8664)
-#include "cpuid8664.h"
+
+#if defined(TARGET_LINUX_X8664) || defined(TARGET_OSX_X8664) || defined(TARGET_WIN_X8664)
+#include "x86id.h"
+#endif
+
+#if     defined(TARGET_WIN_X8664)
+#undef  I_RpcMgmtEnableDedicatedThreadPool
+#undef  EnableMouseInPointerForThread
+#undef  GetThreadDpiHostingBehavior
 #endif
 
 /*
@@ -107,7 +151,7 @@
 /*
  * Forward prototype definitions
  */
-extern void __math_dispatch_error();
+extern void __math_dispatch_error(void);
 static char *fptr2char(void *);
 static void __pgmath_abort(int, char *);
 
@@ -115,7 +159,7 @@ typedef p2f __mth_rt_vi_ptrs_t[func_size][sv_size][frp_size];
 
 static char *carch[] = {
         /* List needs to follow arch_e in tbldefs.h */
-#if defined(TARGET_LINUX_X8664) || defined(TARGET_OSX_X8664)
+#if defined(TARGET_LINUX_X8664) || defined(TARGET_OSX_X8664) || defined(TARGET_WIN_X8664)
 #define ARCH_DEFAULT arch_em64t
 #define STR_ARCH_DEFAULT "em64t(p7)"
         [arch_em64t]    = "em64t",
@@ -200,6 +244,9 @@ static char *cfunc[] = {
         [func_div]      = "div",
         [func_sqrt]     = "sqrt",
         [func_mod]      = "mod",
+        [func_aint]     = "aint",
+        [func_ceil]     = "ceil",
+        [func_floor]    = "floor",
 };
 
 #undef SLEEF
@@ -222,14 +269,17 @@ static char *cfunc[] = {
 #include "math_tables/mth_divdefs.h"
 #include "math_tables/mth_sqrtdefs.h"
 #include "math_tables/mth_moddefs.h"
+#include "math_tables/mth_aintdefs.h"
+#include "math_tables/mth_ceildefs.h"
+#include "math_tables/mth_floordefs.h"
 #ifdef SLEEF
 #include "math_tables/mth_sleef.h"
 #endif
 #undef  DO_MTH_DISPATCH_FUNC
-#define DO_MTH_DISPATCH_FUNC(name_, func_, sv_, frp_) extern void name_##_init();
+#define DO_MTH_DISPATCH_FUNC(name_, func_, sv_, frp_) extern void name_##_init(void);
 #include "tmp-mth_statsdefs.h"
 #undef  DO_MTH_DISPATCH_FUNC
-#define DO_MTH_DISPATCH_FUNC(name_, func_, sv_, frp_) extern void name_##_prof();
+#define DO_MTH_DISPATCH_FUNC(name_, func_, sv_, frp_) extern void name_##_prof(void);
 #include "tmp-mth_statsdefs.h"
 
 #undef MTHINTRIN
@@ -261,6 +311,9 @@ static mth_intrins_defs_t mth_intrins_defs[] = {
 #include "math_tables/mth_divdefs.h"
 #include "math_tables/mth_sqrtdefs.h"
 #include "math_tables/mth_moddefs.h"
+#include "math_tables/mth_aintdefs.h"
+#include "math_tables/mth_ceildefs.h"
+#include "math_tables/mth_floordefs.h"
 #else
 #include "math_tables/mth_sleef.h"
 #endif
@@ -310,7 +363,7 @@ typedef struct {
 } text2archtype_t;
 
 static text2archtype_t text2archtype[] = {
-#if defined(TARGET_LINUX_X8664) || defined(TARGET_OSX_X8664)
+#if defined(TARGET_LINUX_X8664) || defined(TARGET_OSX_X8664) || defined(TARGET_WIN_X8664)
         {arch_em64t,    "p7"},
         {arch_sse4,     "core2"},
         {arch_sse4,     "penryn"},
@@ -928,16 +981,17 @@ __math_epilog_do_stats()
 }
 
 /*
- * __math_epilog()
+ * __math_epilog_()
  */
 
 void DESTRUCTOR
-__math_epilog()
+__math_epilog_()
 {
   if (__mth_i_stats != 0) {
     __math_epilog_do_stats();
   }
 }
+
 
 /*
  * __math_dispatch()
@@ -998,26 +1052,26 @@ __math_dispatch()
     }
 
   } else { /* Get processor architecture using CPUID information */
-#if defined(TARGET_LINUX_X8664) || defined(TARGET_OSX_X8664)
-    if (CPUIDX8664(is_avx512vl)() == 1) {
+#if defined(TARGET_LINUX_X8664) || defined(TARGET_OSX_X8664) || defined(TARGET_WIN_X8664)
+    if (X86IDFN(is_avx512vl)() == 1) {
       __math_target = arch_avx512;
-    } else if (CPUIDX8664(is_avx512f)() == 1) {
+    } else if (X86IDFN(is_avx512f)() == 1) {
       __math_target = arch_avx512knl;
-    } else if (CPUIDX8664(is_avx2)() == 1) {
+    } else if (X86IDFN(is_avx2)() == 1) {
       __math_target = arch_avx2;
-    } else if (CPUIDX8664(is_avx)() == 1) {
-      if (CPUIDX8664(is_intel)() == 1) {
+    } else if (X86IDFN(is_avx)() == 1) {
+      if (X86IDFN(is_intel)() == 1) {
         __math_target = arch_avx;
       }
-      if (CPUIDX8664(is_amd)() == 1) {
-        if (CPUIDX8664(is_fma4)() == 1) {
+      if (X86IDFN(is_amd)() == 1) {
+        if (X86IDFN(is_fma4)() == 1) {
           __math_target = arch_avxfma4;
         } else {
           __math_target = arch_sse4;
         }
       }
     } else {
-      if ((CPUIDX8664(is_sse4a)() == 1) || (CPUIDX8664(is_sse41)() == 1)) {
+      if ((X86IDFN(is_sse4a)() == 1) || (X86IDFN(is_sse41)() == 1)) {
         __math_target = arch_sse4;
       } else {
         __math_target = arch_em64t;
@@ -1210,7 +1264,7 @@ __math_dispatch()
     }
 #if defined(DISPATCH_IS_STATIC)
     fputs("MTH_I_STATS is enabled, but running with static "\
-          "initialization\nMust call __math_epilog at program "\
+          "initialization\nMust call __math_epilog_ at program "\
           "termination to generate report\n", stderr);
 #endif
 
@@ -1279,8 +1333,12 @@ __math_dispatch_init()
   if (__sync_bool_compare_and_swap(&__math_dispatch_in_prog, false, true)) {
     if (__mth_i_debug == 0x100) {
       fputs("calling __math_dispatch()\n", stderr);
+#if defined(TARGET_WIN_X8664)
+      SLEEP(1);
+#else
       struct timespec tsp = { 0, 250000000 };
       (void) nanosleep(&tsp, NULL);
+#endif
     }
     __math_dispatch();
     __math_dispatch_is_init = true;
@@ -1302,7 +1360,7 @@ __math_dispatch_init()
 }
 
 void
-__math_dispatch_error()
+__math_dispatch_error(void)
 {
   static bool in_progress = false;
 
@@ -1317,12 +1375,18 @@ __math_dispatch_error()
 
 #if !defined(__PGIC__)
   if ( false == __sync_bool_compare_and_swap(&in_progress, false, true)) {
+#if !defined(TARGET_WIN_X8664)
     struct timespec tsp = { 0, 250000000 };
+#endif
     while (true) {
+#if defined(TARGET_WIN_X8664)
+      SLEEP(1);     // The first thread will eventually abort the program
+#else
       (void) nanosleep(&tsp, NULL); // The first thread will
 				    // eventually abort the program
       tsp.tv_sec = 0;
       tsp.tv_nsec = 250000000;
+#endif
     }
   }
 #endif
@@ -1398,6 +1462,6 @@ main()
 static void
 __pgmath_abort(int ierr, char *s)
 {
-  printf("pgmath_abort:%s", s);
+  fprintf(stderr, "__pgmath_abort:%s", s);
   exit(ierr);
 }

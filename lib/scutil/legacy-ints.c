@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2017, NVIDIA CORPORATION.  All rights reserved.
+ * Copyright (c) 2016-2018, NVIDIA CORPORATION.  All rights reserved.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -21,14 +21,14 @@
 #include "legacy-ints.h"
 
 void
-bgitoi64(int64_t v, INT64 res)
+bgitoi64(int64_t v, DBLINT64 res)
 {
   res[0] = v >> 32;
   res[1] = v;
 }
 
 int64_t
-i64tobgi(INT64 v)
+i64tobgi(DBLINT64 v)
 {
   int64_t x = ((int64_t) v[0] << 32) | (uint32_t) v[1];
   return x;

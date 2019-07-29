@@ -1,5 +1,5 @@
 .\"/*
-.\" * Copyright (c) 1994-2018, NVIDIA CORPORATION.  All rights reserved.
+.\" * Copyright (c) 1994-2019, NVIDIA CORPORATION.  All rights reserved.
 .\" *
 .\" * Licensed under the Apache License, Version 2.0 (the "License");
 .\" * you may not use this file except in compliance with the License.
@@ -899,6 +899,16 @@ Double CEILING.
 .AT arth null dp cse
 .CG "roundsd" sse_avx
 
+.IL AINT splnk
+Single precision trunction. 
+.AT arth null sp cse
+.CG notAILI
+
+.IL DINT dplnk
+Double precision trunction. 
+.AT arth null dp cse
+.CG notAILI
+
 .IL SCMPLXEXP cslnk
 Single-precision complex exponential.
 .AT arth null cs cse
@@ -1065,29 +1075,77 @@ Treated as a nop by linearization.
 .AT arth null ir cse
 .CG notCG
 
+
 .IL IKMV irlnk
-Move an signed integer value to a integer64 register with sign extension.
-Used for I to K and I to UK conversions.
+Signed integer*4 to signed or unsigned integer*8 type conversion.
 .AT move null kr cse
 .CG asm_special "movslq" 'q'
 .SI ld direct lat(1)
 .SI st direct lat(4)
 .SI direct lat(1)
 
+.IL PIKMV arlnk xmm nme
+Convert 'N' packed signed integer*4 values from 'arlnk' into 'N'
+packed signed or unsigned integer*8 values in 'xmm', where 'N' is 2, 4
+or 8 if 'xmm' is an xmm (>= SSE4.1), ymm (>= AVX2) or zmm (AVX-512)
+register respectively.
+.AT other null trm ssenme
+.CG terminal "pmovsxdq" sse_avx
+
+.IL PIKMVX xmm xmm
+Convert 'N' packed signed integer*4 values from 'xmm1' (an xmm or ymm
+register) into 'N' packed signed or unsigned integer*8 values in
+'xmm2' (an xmm, ymm or zmm register), where 'N' is 2, 4 or 8 if 'xmm2'
+is an xmm (>= SSE4.1), ymm (>= AVX2) or zmm (AVX-512) register
+respectively.
+.AT other null trm
+.CG terminal "pmovsxdq" avx_special
+
+
 .IL UIKMV irlnk
-Move an unsigned integer register to a integer64 register.
+Unsigned integer*4 to signed or unsigned integer*8 type conversion.
 .AT move null kr cse
 .CG asm_special "movl" 'q'
 
+.IL PUIKMV arlnk xmm nme
+Convert 'N' packed unsigned integer*4 values from 'arlnk' into 'N'
+packed signed or unsigned integer*8 values in 'xmm', where 'N' is 2, 4
+or 8 if 'xmm' is an xmm (>= SSE4.1), ymm (>= AVX2) or zmm (AVX-512)
+register respectively.
+.AT other null trm ssenme
+.CG terminal "pmovzxdq" sse_avx
+
+.IL PUIKMVX xmm xmm
+Convert 'N' packed unsigned integer*4 values from 'xmm1' (an xmm or
+ymm register) into 'N' packed signed or unsigned integer*8 values in
+'xmm2' (an xmm, ymm or zmm register), where 'N' is 2, 4 or 8 if 'xmm2'
+is an xmm (>= SSE4.1), ymm (>= AVX2) or zmm (AVX-512) register
+respectively.
+.AT other null trm
+.CG terminal "pmovzxdq" avx_special
+
+
 .IL KIMV krlnk
-Move an Integer64 register to a integer register with truncation.
-Used also for K to UI, UK to I, and UK to UI conversions.
-Bug fix - don't treat this as a move for purposes of register allocation.
+Signed or unsigned integer*8 to signed or unsigned integer*4 type
+conversion with truncation.  Note, we mustn't treat this as a move for
+the purposes of register allocation.
 .AT move null ir cse
 .CG "mov" 'l'
 .SI direct lat(1)
 .SI ld direct lat(3)
 .SI st direct lat(3)
+
+.IL PKIMVX xmm xmm
+Truncate 'N' packed signed or unsigned integer*8 values from 'xmm1'
+(an xmm, ymm or zmm register) into 'N' packed signed or unsigned
+integer*4 values in 'xmm2' (an xmm or ymm register), where 'N' is 2, 4
+or 8 if 'xmm1' is an xmm, ymm or zmm register respectively.  This
+instruction requires support for AVX-512F and AVX-512VL, and the
+source operand must be a register (unusually for AVX instructions the
+destination can be a memory operand!).
+.AT other null trm
+.CG terminal "vpmovqd" avx_only avx_special
+
 
 .IL IAMV irlnk
 Move an integer reg into an address reg.
@@ -1125,16 +1183,17 @@ Load a signed byte into a 64 bit register.  (JHM, 1 Oct 2013: Redundant?)
 .CG CGonly asm_special "movsb" 'q'
 
 .IL PMOVSB arlnk xmm nme
-SSE4.1, AVX and AVX2 instruction to convert 'N' signed byte values
-from 'arlnk' into 'N' integer*4 values in 'xmm', where N = 4 if 'xmm'
-is an xmm register or 8 if it's a ymm register.
+Convert 'N' packed signed byte values from 'arlnk' into 'N' packed
+integer*4 values in 'xmm', where 'N' is 4, 8 or 16 if 'xmm' is an xmm
+(>= SSE4.1), ymm (>= AVX2) or zmm (AVX-512) register respectively.
 .AT other null trm ssenme
 .CG terminal "pmovsxbd" sse_avx
 
 .IL PMOVSBX xmm xmm
-SSE4.1, AVX and AVX2 instruction to convert 'N' signed byte values
-from the low quarter of 'xmm1' into 'N' integer*4 values in 'xmm2',
-where N = 4 if 'xmm2' is an xmm register or 8 if it's a ymm register.
+Convert 'N' packed signed byte values from 'xmm1' (an xmm register)
+into 'N' packed integer*4 values in 'xmm2' (an xmm, ymm or zmm
+register), where 'N' is 4, 8 or 16 if 'xmm2' is an xmm (>= SSE4.1),
+ymm (>= AVX2) or zmm (AVX-512) register respectively.
 .AT other null trm
 .CG terminal "pmovsxbd" avx_special
 
@@ -1150,16 +1209,17 @@ Load an unsigned byte into a 64 bit register.  (JHM, 1 Oct 2013: Redundant?)
 .CG CGonly asm_special "movzb" 'q'
 
 .IL PMOVZB arlnk xmm nme
-SSE4.1, AVX and AVX2 instruction to convert 'N' unsigned byte values
-from 'arlnk' into 'N' integer*4 values in 'xmm', where N = 4 if 'xmm'
-is an xmm register or 8 if it's a ymm register.
+Convert 'N' packed unsigned byte values from 'arlnk' into 'N' packed
+integer*4 values in 'xmm', where 'N' is 4, 8 or 16 if 'xmm' is an xmm
+(>= SSE4.1), ymm (>= AVX2) or zmm (AVX-512) register respectively.
 .AT other null trm ssenme
 .CG terminal "pmovzxbd" sse_avx
 
 .IL PMOVZBX xmm xmm
-SSE4.1, AVX and AVX2 instruction to convert 'N' unsigned byte values
-from the low quarter of 'xmm1' into 'N' integer*4 values in 'xmm2',
-where N = 4 if 'xmm2' is an xmm register or 8 if it's a ymm register.
+Convert 'N' packed unsigned byte values from 'xmm1' (an xmm register)
+into 'N' packed integer*4 values in 'xmm2' (an xmm, ymm or zmm
+register), where 'N' is 4, 8 or 16 if 'xmm2' is an xmm (>= SSE4.1),
+ymm (>= AVX2) or zmm (AVX-512) register respectively.
 .AT other null trm
 .CG terminal "pmovzxbd" avx_special
 
@@ -1176,17 +1236,18 @@ Load a signed integer*2 value into a 64 bit register.
 .CG CGonly asm_special "movsw" 'q'
 
 .IL PMOVSW arlnk xmm nme
-SSE4.1, AVX and AVX2 instruction to convert 'N' signed integer*2
-values from 'arlnk' into 'N' integer*4 values in 'xmm', where N = 4 if
-'xmm' is an xmm register or 8 if it's a ymm register.
+Convert 'N' packed signed integer*2 values from 'arlnk' into 'N'
+packed integer*4 values in 'xmm', where 'N' is 4, 8 or 16 if 'xmm' is
+an xmm (>= SSE4.1), ymm (>= AVX2) or zmm (AVX-512) register
+respectively.
 .AT other null trm ssenme
 .CG terminal "pmovsxwd" sse_avx
 
 .IL PMOVSWX xmm xmm
-SSE4.1, AVX and AVX2 instruction to convert 'N' signed integer*2
-values from the low half of 'xmm1' into 'N' integer*4 values in
-'xmm2', where N = 4 if 'xmm2' is an xmm register or 8 if it's a ymm
-register.
+Convert 'N' packed signed integer*2 values from 'xmm1' (an xmm or ymm
+register) into 'N' packed integer*4 values in 'xmm2' (an xmm, ymm or
+zmm register), where 'N' is 4, 8 or 16 if 'xmm2' is an xmm (>= SSE4.1),
+ymm (>= AVX2) or zmm (AVX-512) register respectively.
 .AT other null trm
 .CG terminal "pmovsxwd" avx_special
 
@@ -1203,17 +1264,18 @@ Load an unsigned integer*2 value into a 64 bit register.
 .CG CGonly asm_special "movzw" 'q'
 
 .IL PMOVZW arlnk xmm nme
-SSE4.1, AVX and AVX2 instruction to convert 'N' unsigned integer*2
-values from 'arlnk' into 'N' integer*4 values in 'xmm', where N = 4 if
-'xmm' is an xmm register or 8 if it's a ymm register.
+Convert 'N' packed unsigned integer*2 values from 'arlnk' into 'N'
+packed integer*4 values in 'xmm', where 'N' is 4, 8 or 16 if 'xmm' is
+an xmm (>= SSE4.1), ymm (>= AVX2) or zmm (AVX-512) register
+respectively.
 .AT other null trm ssenme
 .CG terminal "pmovzxwd" sse_avx
 
 .IL PMOVZWX xmm xmm
-SSE4.1, AVX and AVX2 instruction to convert 'N' unsigned integer*2
-values from the low half of 'xmm1' into 'N' integer*4 values in
-'xmm2', where N = 4 if 'xmm2' is an xmm register or 8 if it's a ymm
-register.
+Convert 'N' packed unsigned integer*2 values from 'xmm1' (an xmm or
+ymm register) into 'N' packed integer*4 values in 'xmm2' (an xmm, ymm
+or zmm register), where 'N' is 4, 8 or 16 if 'xmm2' is an xmm (>= SSE4.1),
+ymm (>= AVX2) or zmm (AVX-512) register respectively.
 .AT other null trm
 .CG terminal "pmovzxwd" avx_special
 
@@ -1222,12 +1284,6 @@ register.
 Integer*4 to real*4 type conversion.
 .AT arth null sp cse
 .CG "cvtsi2ss" 'l' sse_avx asm_special
-
-.IL FLOATU irlnk
-Unsigned integer*4 to real*4 type conversion.
-Equivalent to UIKMV + FLOATK combination.
-.AT arth null sp cse
-.CG notCG
 
 .IL PFLOAT irlnk
 Packed integer*4 to real*4 type conversion.  ONLY USED ON x86-64.
@@ -1245,6 +1301,12 @@ Convert 4 integer*4 values from 'xmm1' into 4 real*4 values in 'xmm2'.
 .AT other null trm
 .CG terminal "cvtdq2ps" sse_avx
 
+
+.IL FLOATU irlnk
+Unsigned integer*4 to real*4 type conversion.
+Equivalent to UIKMV + FLOATK combination.
+.AT arth null sp cse
+.CG notCG
 
 .IL FLOATK krlnk
 Integer*8 to real*4 type conversion.
@@ -1264,23 +1326,27 @@ Integer*4 to real*8 type conversion.
 .SI ld direct fst lat(6)
 .SI double fst lat(11)
 
+.IL PDFLOAT arlnk xmm nme
+Convert 'N' packed signed integer*4 values from 'arlnk' into 'N'
+packed real*8 values in 'xmm', where 'N' is 2, 4 or 8 if 'xmm' is an
+xmm (>= SSE2), ymm (>= AVX) or zmm (AVX-512F) register respectively.
+.AT other null trm ssenme
+.CG terminal "cvtdq2pd" ssedp sse_avx
+
+.IL PDFLOATX xmm xmm
+Convert 'N' packed signed integer*4 values from 'xmm1' (an xmm or ymm
+register) into 'N' packed real*8 values in 'xmm2' (an xmm, ymm or zmm
+register), where 'N' is 2, 4 or 8 if 'xmm' is an xmm (>= SSE2), ymm
+(>= AVX) or zmm (AVX-512F) register respectively.
+.AT other null trm
+.CG terminal "cvtdq2pd" ssedp avx_special
+
+
 .IL DFLOATU irlnk
 Unsigned integer*4 to real*8 type conversion.
 Equivalent to UIKMV + DFLOATK combination.
 .AT arth null dp cse
 .CG notCG
-
-.IL PDFLOAT arlnk xmm nme
-Convert 2 integer*4 values from 'arlnk' into 2 real*8 values in 'xmm'.
-.AT other null trm ssenme
-.CG terminal "cvtdq2pd" ssedp sse_avx
-
-.IL PDFLOATX xmm xmm
-Convert 2 integer*4 values from the low half of 'xmm1' into 2 real*8
-values in 'xmm2'.
-.AT other null trm
-.CG terminal "cvtdq2pd" ssedp avx_special
-
 
 .IL DFLOATK krlnk
 Integer*8 to real*8 type conversion.
@@ -1295,12 +1361,14 @@ Unsigned integer*8 to real*8 type conversion.
 .CG notAILI
 
 .IL PDFLOATK arlnk xmm nme
-Convert 2 integer*8 values from 'arlnk' into 2 real*8 values in 'xmm'.
+AVX512-DQ instruction to convert packed integer*8 values from 'arlnk'
+into real*8 values in 'xmm'.
 .AT other null trm ssenme
 .CG terminal notAILI
 
 .IL PDFLOATKX xmm xmm
-Convert 2 integer*8 values from 'xmm1' into 2 real*8 values in 'xmm2'.
+AVX512-DQ instruction to convert packed integer*8 values from 'xmm1'
+into real*8 values in 'xmm2'.
 .AT other null trm
 .CG terminal notAILI
 
@@ -1355,6 +1423,18 @@ KIMV combination.
 .AT arth null ir cse
 .CG notCG
 
+.IL PDFIX arlnk xmm nme
+Convert 2 real*8 values from 'arlnk' into 2 integer*4 values in the
+low half of 'xmm'.
+.AT other null trm ssenme
+.CG terminal "cvttpd2dq" avx_special
+
+.IL PDFIXX xmm xmm
+Convert 2 real*8 values from 'xmm1' into 2 integer*4 values in the low
+half of 'xmm2'.
+.AT other null trm
+.CG terminal "cvttpd2dq" avx_special
+
 
 .IL DFIXK dplnk
 Real*8 to to integer*8 type conversion.
@@ -1395,14 +1475,18 @@ Real*4 to real*8 type conversion.
 .CG "cvtss2sd" avx_special
 
 .IL PDBLE arlnk xmm nme
-Convert 2 real*4 values from 'arlnk' into 2 real*8 values in 'xmm'.
+Convert 'N' packed real*4 values from 'arlnk' into 'N' packed real*8
+values in 'xmm', where 'N' is 2, 4 or 8 if 'xmm' is an xmm (>= SSE2),
+ymm (>= AVX) or zmm (AVX-512F) register respectively.
 .AT other null trm ssenme
 .CG terminal "cvtps2pd" ssedp sse_avx
 .SI double lat(5)
 
 .IL PDBLEX xmm xmm
-Convert 2 real*4 values from the low half of 'xmm1' into 2 real*8
-values in 'xmm2'.
+Convert 'N' packed real*4 values from 'xmm1' (an xmm or ymm register)
+into 'N' packed real*8 values in 'xmm2' (an xmm, ymm or zmm register),
+where 'N' is 2, 4 or 8 if 'xmm' is an xmm (>= SSE2), ymm (>= AVX) or
+zmm (AVX-512F) register respectively.
 .AT other null trm
 .CG terminal "cvtps2pd" ssedp avx_special
 .SI double lat(3)
@@ -2603,24 +2687,6 @@ the ILI operand count was only 4.
 \'op5' is actual number of bytes to copy.
 This gets turned into SMOVE and load/store operations by rm_smove
 .AT other null trm dom
-.CG notCG
-
-.IL SMOVEI arlnk arlnk stc nme
-Simple structure copy.  (MOVS is x86 parlance.)
-\'op1' is arlnk to SMOVES
-\'op2' is the destination address
-\'op3' is actual number of bytes to copy.
-\'nme' is names table entry for destination struct.
-This gets turned into SMOVE and load/store operations by rm_smove
-.AT other null trm dom
-.CG notCG
-
-.IL SMOVES arlnk nme
-Simple structure copy source operand (SMOVEI operand 2)
-\'op1' is the source address.
-\'nme' is names table entry for source struct.
-This gets turned into SMOVE and load/store operations by rm_smove
-.AT other null ar dom
 .CG notCG
 
 .IL XMOVE arlnk arlnk nme
@@ -4161,115 +4227,205 @@ operands are not commutative.  It clears the AF, OF, PF and SF flags.
 
 
 .IL PI4ADD arlnk xmm nme
+SSE2 packed signed or unsigned integer*4 addition.
 .AT other comm trm ssenme
 .CG terminal "paddd" sse_avx
 
-.IL PI4SUBR arlnk xmm nme
-Integer reverse-subtract.
-.AT other null trm ssenme
-.CG terminal "psubd" sse_avx
-
 .IL PI4AND arlnk xmm nme
+SSE2 packed bitwise AND.  For pre-AVX512 targets the same instruction
+'[v]pand' is generated for all integer sizes, but for AVX512 the
+letter 'd' is added to the instruction mnemonic to denote integer*4
+operands and result.
 .AT other comm trm ssenme
 .CG terminal "pand" avx3_special
 
 .IL PI4ANDN arlnk xmm nme
+SSE2 packed bitwise AND NOT.  For pre-AVX512 targets the same
+instruction '[v]pandn' is generated for all integer sizes, but for
+AVX512 the letter 'd' is added to the instruction mnemonic to denote
+integer*4 operands and result.
 .AT other null trm ssenme
 .CG terminal "pandn" avx3_special
 
-.IL PI4OR arlnk xmm nme
-.AT other comm trm ssenme
-.CG terminal "por" avx3_special
-
-.IL PI4XOR arlnk xmm nme
-.AT other comm trm ssenme
-.CG terminal "pxor" avx3_special
-
 .IL PI4MAX arlnk xmm nme
-SSE4.1 packed signed dword integer maximum.
+SSE4.1 packed signed integer*4 maximum.
 .AT other comm trm ssenme
 .CG terminal "pmaxsd" sse_avx
 
 .IL PI4MIN arlnk xmm nme
-SSE4.1 packed signed dword integer minimum.
+SSE4.1 packed signed integer*4 minimum.
 .AT other comm trm ssenme
 .CG terminal "pminsd" sse_avx
 
-
-.IL PI8ADD arlnk xmm nme
+.IL PI4MUL arlnk xmm nme
+SSE4.1 packed signed integer*4 multiplication, yielding the low half
+of the integer*8 result.
 .AT other comm trm ssenme
-.CG terminal "paddq" sse_avx
+.CG terminal "pmulld" sse_avx
 
-.IL PI8SUBR arlnk xmm nme
-Integer reverse-subtract.
-.AT other null trm ssenme
-.CG terminal "psubq" sse_avx
-
-.IL PI8AND arlnk xmm nme
-.AT other comm trm ssenme
-.CG terminal "pand" avx3_special
-
-.IL PI8ANDN arlnk xmm nme
-.AT other null trm ssenme
-.CG terminal "pandn" avx3_special
-
-.IL PI8OR arlnk xmm nme
+.IL PI4OR arlnk xmm nme
+SSE2 packed bitwise OR.  For pre-AVX512 targets the same instruction
+'[v]por' is generated for all integer sizes, but for AVX512 the letter
+'d' is added to the instruction mnemonic to denote integer*4 operands
+and result.
 .AT other comm trm ssenme
 .CG terminal "por" avx3_special
 
-.IL PI8XOR arlnk xmm nme
+.IL PI4SUBR arlnk xmm nme
+SSE2 packed signed or unsigned integer*4 reverse subtraction.
+.AT other null trm ssenme
+.CG terminal "psubd" sse_avx
+
+.IL PI4XOR arlnk xmm nme
+SSE2 packed bitwise XOR.  For pre-AVX512 targets the same instruction
+'[v]pxor' is generated for all integer sizes, but for AVX512 the
+letter 'd' is added to the instruction mnemonic to denote integer*4
+operands and result.
 .AT other comm trm ssenme
 .CG terminal "pxor" avx3_special
 
 
 .IL PI4ADDX xmm xmm
+SSE2 packed signed or unsigned integer*4 addition.
 .AT other comm trm
 .CG terminal "paddd" sse_avx
 
-.IL PI4SUBRX xmm xmm
-Integer reverse-subtract.
-.AT other null trm
-.CG terminal "psubd" sse_avx
-
 .IL PI4ANDX xmm xmm
+SSE2 packed bitwise AND.  For pre-AVX512 targets the same instruction
+'[v]pand' is generated for all integer sizes, but for AVX512 the
+letter 'd' is added to the instruction mnemonic to denote integer*4
+operands and result.
 .AT other comm trm
 .CG terminal "pand" avx3_special
 
 .IL PI4ANDNX xmm xmm
+SSE2 packed bitwise AND NOT.  For pre-AVX512 targets the same
+instruction '[v]pandn' is generated for all integer sizes, but for
+AVX512 the letter 'd' is added to the instruction mnemonic to denote
+integer*4 operands and result.
 .AT other null trm
 .CG terminal "pandn" avx3_special
 
+.IL PI4MAXX xmm xmm
+SSE4.1 packed signed integer*4 maximum.
+.AT other comm trm
+.CG terminal "pmaxsd" sse_avx
+
+.IL PI4MINX xmm xmm
+SSE4.1 packed signed integer*4 minimum.
+.AT other comm trm
+.CG terminal "pminsd" sse_avx
+
+.IL PI4MULX xmm xmm
+SSE4.1 packed signed integer*4 multiplication, yielding the low half
+of the integer*8 result.
+.AT other comm trm
+.CG terminal "pmulld" sse_avx
+
 .IL PI4ORX xmm xmm
+SSE2 packed bitwise OR.  For pre-AVX512 targets the same instruction
+'[v]por' is generated for all integer sizes, but for AVX512 the letter
+'d' is added to the instruction mnemonic to denote integer*4 operands
+and result.
 .AT other comm trm
 .CG terminal "por" avx3_special
 
+.IL PI4SUBRX xmm xmm
+SSE2 packed signed or unsigned integer*4 reverse subtraction.
+.AT other null trm
+.CG terminal "psubd" sse_avx
+
 .IL PI4XORX xmm xmm
+SSE2 packed bitwise XOR.  For pre-AVX512 targets the same instruction
+'[v]pxor' is generated for all integer sizes, but for AVX512 the
+letter 'd' is added to the instruction mnemonic to denote integer*4
+operands and result.
 .AT other comm trm
 .CG terminal "pxor" avx3_special
 
 
+.IL PI8ADD arlnk xmm nme
+SSE2 packed signed or unsigned integer*8 addition.
+.AT other comm trm ssenme
+.CG terminal "paddq" sse_avx
+
+.IL PI8AND arlnk xmm nme
+SSE2 packed bitwise AND.  For pre-AVX512 targets the same instruction
+'[v]pand' is generated for all integer sizes, but for AVX512 the
+letter 'q' is added to the instruction mnemonic to denote integer*8
+operands and result.
+.AT other comm trm ssenme
+.CG terminal "pand" avx3_special
+
+.IL PI8ANDN arlnk xmm nme
+SSE2 packed bitwise AND NOT.  For pre-AVX512 targets the same
+instruction '[v]pandn' is generated for all integer sizes, but for
+AVX512 the letter 'q' is added to the instruction mnemonic to denote
+integer*8 operands and result.
+.AT other null trm ssenme
+.CG terminal "pandn" avx3_special
+
+.IL PI8OR arlnk xmm nme
+SSE2 packed bitwise OR.  For pre-AVX512 targets the same instruction
+'[v]por' is generated for all integer sizes, but for AVX512 the letter
+'q' is added to the instruction mnemonic to denote integer*8 operands
+and result.
+.AT other comm trm ssenme
+.CG terminal "por" avx3_special
+
+.IL PI8SUBR arlnk xmm nme
+SSE2 packed signed or unsigned integer*8 reverse subtraction.
+.AT other null trm ssenme
+.CG terminal "psubq" sse_avx
+
+.IL PI8XOR arlnk xmm nme
+SSE2 packed bitwise XOR.  For pre-AVX512 targets the same instruction
+'[v]pxor' is generated for all integer sizes, but for AVX512 the
+letter 'q' is added to the instruction mnemonic to denote integer*8
+operands and result.
+.AT other comm trm ssenme
+.CG terminal "pxor" avx3_special
+
+
 .IL PI8ADDX xmm xmm
+SSE2 packed signed or unsigned integer*8 addition.
 .AT other comm trm
 .CG terminal "paddq" sse_avx
 
-.IL PI8SUBRX xmm xmm
-Integer reverse-subtract.
-.AT other null trm
-.CG terminal "psubq" sse_avx
-
 .IL PI8ANDX xmm xmm
+SSE2 packed bitwise AND.  For pre-AVX512 targets the same instruction
+'[v]pand' is generated for all integer sizes, but for AVX512 the
+letter 'q' is added to the instruction mnemonic to denote integer*8
+operands and result.
 .AT other comm trm
 .CG terminal "pand" avx3_special
 
 .IL PI8ANDNX xmm xmm
+SSE2 packed bitwise AND NOT.  For pre-AVX512 targets the same
+instruction '[v]pandn' is generated for all integer sizes, but for
+AVX512 the letter 'q' is added to the instruction mnemonic to denote
+integer*8 operands and result.
 .AT other null trm
 .CG terminal "pandn" avx3_special
 
 .IL PI8ORX xmm xmm
+SSE2 packed bitwise OR.  For pre-AVX512 targets the same instruction
+'[v]por' is generated for all integer sizes, but for AVX512 the letter
+'q' is added to the instruction mnemonic to denote integer*8 operands
+and result.
 .AT other comm trm
 .CG terminal "por" avx3_special
 
+.IL PI8SUBRX xmm xmm
+SSE2 packed signed or unsigned integer*8 reverse subtraction.
+.AT other null trm
+.CG terminal "psubq" sse_avx
+
 .IL PI8XORX xmm xmm
+SSE2 packed bitwise XOR.  For pre-AVX512 targets the same instruction
+'[v]pxor' is generated for all integer sizes, but for AVX512 the
+letter 'q' is added to the instruction mnemonic to denote integer*8
+operands and result.
 .AT other comm trm
 .CG terminal "pxor" avx3_special
 
@@ -4285,16 +4441,6 @@ Vector qword integer compare; stc is the compare code;
 one of the instructions pcmpXXq is generated for this ili.
 .AT other null trm
 .CG terminal sse_avx asm_special
-
-.IL PI4MAXX xmm xmm
-SSE4.1 packed signed dword integer maximum.
-.AT other comm trm
-.CG terminal "pmaxsd" sse_avx
-
-.IL PI4MINX xmm xmm
-SSE4.1 packed signed dword integer minimum.
-.AT other comm trm
-.CG terminal "pminsd" sse_avx
 
 .IL PUI4MAXX xmm xmm
 SSE4.1 packed unsigned dword integer maximum.
@@ -5419,8 +5565,8 @@ Head of a list of update clauses.
 .AT other null trm
 .CG notCG
 
-.IL ACCCOMP lnk
-Head of a list of compare clauses.
+.IL PCASTCOMPARE lnk
+Head of a list of PCAST compare clauses.
 .AT other null trm
 .CG notCG
 
@@ -6212,6 +6358,18 @@ Vector pow double to scalar integer
 Vector reciprocal square root
 .AT arth null lnk cse vect
 .CG notCG
+.IL VFLOOR lnk lnk stc
+Vector floor
+.AT arth null lnk cse vect
+.CG notCG
+.IL VCEIL lnk lnk stc
+Vector ceiling
+.AT arth null lnk cse vect
+.CG notCG
+.IL VAINT lnk lnk stc
+Vector truncation
+.AT arth null lnk cse vect
+.CG notCG
 .IL VRCP lnk lnk stc
 Vector reciprocal
 .AT arth null lnk cse vect
@@ -6239,11 +6397,13 @@ Vector FMA for LLVM intrinsic - -lnk1*lnk2-lnk3, with stc the dtype
 .AT arth null lnk cse vect
 .CG notCG
 .IL VPERMUTE lnk lnk lnk stc
-Shuffle contents of vector registers. lnk1 and lnk2 can be same vector,
-with result in lnk2. stc is the dtype, lnk3 is a vector constant
+Shuffle contents of vector registers. lnk1 and lnk2 can be the same vector
+or lnk2 can be null. lnk1 dtype is used as dtype for both lnk1 and lnk2, 
+unless lnk2 is null. stc is the result dtype, lnk3 is a vector constant
 representing a mask where each field represents which L-to-R element of
 concatenated <lnk1,lnk2> vector is to be placed in corresponding result
-field.
+field. lnk3 size must match the size of the result vector, but can be 
+different than lnk1 and lnk2's size.
 .AT other null lnk vect
 .CG notCG
 .IL VBLEND lnk lnk lnk stc
@@ -6443,6 +6603,114 @@ Start auto parallel region of an outlined function sym.
 .IL ECONCUR sym
 End auto parallel region of an outlined function sym.
 .AT other null trm
+.CG notCG
+
+.IL HFADD hplnk hplnk
+Half-precision floating-point addition.
+.AT arth comm hp cse
+.CG notCG
+
+.IL HFNEG hplnk
+Half-precision negation.
+.AT arth null hp cse
+.CG notCG
+
+.IL HFSUB hplnk hplnk
+Half-precision floating-point subtraction.
+.AT arth null hp cse
+.CG notCG
+
+.IL HFMUL hplnk hplnk
+Half-precision floating-point multiply.
+.AT arth comm hp cse
+.CG notCG
+
+.IL HFDIV hplnk hplnk
+Half-precision divide.
+.AT arth null hp cse
+.CG notCG
+
+.IL HFCMP hplnk hplnk stc
+Half float compare with result of true or false.
+.AT arth null ir cse
+.CG notCG
+
+.IL HFCMPZ hplnk stc
+Half float compare with zero; result is TRUE or FALSE.
+.AT arth null ir cse
+.CG notCG
+
+.IL DFRHP lnk hp
+Define half precision function result.
+.AT define null hp cse
+.CG terminal asm_nop
+
+.IL HFCON sym
+Half-precision floating-point constant.
+.AT cons null hp cse
+.CG notCG
+
+.IL LDHP arlnk nme stc
+Load half-precision floating value.  'stc' is not used.
+.AT load null hp
+.CG notCG
+
+.IL HP2SP hplnk
+Half precison to single precision conversion.
+.AT arth null sp
+.CG notCG
+
+.IL SP2HP splnk
+Single precison to half precision conversion.
+.AT arth null hp
+.CG notCG
+
+.IL DP2HP dplnk
+Double precison to half precision conversion.
+.AT arth null hp
+.CG notCG
+
+.IL STHP hplnk arlnk nme stc
+Store half precision quantity.  'stc' must be MSZ_F2.
+.AT store null trm
+.CG notCG
+
+.IL ARGHP hplnk lnk
+Defines a half-precision memory argument.
+\'hplnk' points to the register value of the argument.
+\'lnk' points to the next ARG ILI.
+.AT define null lnk
+.CG notCG
+
+.IL CSEHP hplnk
+Half precision register cse.
+.AT arth null hp
+.CG notCG
+
+.IL HFCJMP hplnk hplnk stc sym
+Half precision compare and jump to the label 'sym'
+if the condition, denoted by stc, is true.
+.AT branch null trm dom
+.CG terminal conditional_branch notAILI
+
+.IL HFCJMPZ hplnk stc sym
+Half precision compare with zero and branch to label 'sym'.
+.AT branch null trm dom
+.CG notCG conditional_branch
+
+.IL MVHP hplnk ir
+Move half FP value into specific integer register, ir.
+.AT move null trm
+.CG terminal notAILI 'l'
+
+.IL HFMAX hplnk hplnk
+Half-precision max
+.AT arth comm hp cse
+.CG notCG
+
+.IL HFMIN hplnk hplnk
+Half-precision min
+.AT arth comm hp cse
 .CG notCG
 
 .so ilitp_atomic.n

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2017-2018, NVIDIA CORPORATION.  All rights reserved.
+ * Copyright (c) 2017-2019, NVIDIA CORPORATION.  All rights reserved.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -20,8 +20,6 @@
 #if     defined(TARGET_POWER)
 #warning  TARGET_POWER currently disabled - see mth_128defs_pwr.S
 #endif
-
-extern void __math_dispatch();
 
 /*
  * The X86 architecture is peculiar with regards to floating point comparisons.
@@ -1892,8 +1890,10 @@ MTH_DISPATCH_FUNC(__fs_exp_1)(vrs1_t x)
   vrs1_t (*fptr)(vrs1_t);
   _MTH_I_INIT();
   _MTH_I_STATS_INC(func_exp,sv_ss,frp_f);
+#if     ! defined(TARGET_X8664)
   if (_ISFZEROPT0(x))
     return 1.0;
+#endif
 
   fptr = (vrs1_t(*)(vrs1_t))MTH_DISPATCH_TBL[func_exp][sv_ss][frp_f];
   return (fptr(x));
@@ -1905,8 +1905,10 @@ MTH_DISPATCH_FUNC(__rs_exp_1)(vrs1_t x)
   vrs1_t (*fptr)(vrs1_t);
   _MTH_I_INIT();
   _MTH_I_STATS_INC(func_exp,sv_ss,frp_r);
+#if     ! defined(TARGET_X8664)
   if (_ISFZEROPT0(x))
     return 1.0;
+#endif
 
   fptr = (vrs1_t(*)(vrs1_t))MTH_DISPATCH_TBL[func_exp][sv_ss][frp_r];
   return (fptr(x));
@@ -1918,8 +1920,10 @@ MTH_DISPATCH_FUNC(__ps_exp_1)(vrs1_t x)
   vrs1_t (*fptr)(vrs1_t);
   _MTH_I_INIT();
   _MTH_I_STATS_INC(func_exp,sv_ss,frp_p);
+#if     ! defined(TARGET_X8664)
   if (_ISFZEROPT0(x))
     return 1.0;
+#endif
 
   fptr = (vrs1_t(*)(vrs1_t))MTH_DISPATCH_TBL[func_exp][sv_ss][frp_p];
   return (fptr(x));
@@ -1991,8 +1995,10 @@ MTH_DISPATCH_FUNC(__fd_exp_1)(vrd1_t x)
   vrd1_t (*fptr)(vrd1_t);
   _MTH_I_INIT();
   _MTH_I_STATS_INC(func_exp,sv_ds,frp_f);
+#if     ! defined(TARGET_X8664)
   if (_ISDZEROPT0(x))
     return 1.0;
+#endif
 
   fptr = (vrd1_t(*)(vrd1_t))MTH_DISPATCH_TBL[func_exp][sv_ds][frp_f];
   return (fptr(x));
@@ -2004,8 +2010,10 @@ MTH_DISPATCH_FUNC(__rd_exp_1)(vrd1_t x)
   vrd1_t (*fptr)(vrd1_t);
   _MTH_I_INIT();
   _MTH_I_STATS_INC(func_exp,sv_ds,frp_r);
+#if     ! defined(TARGET_X8664)
   if (_ISDZEROPT0(x))
     return 1.0;
+#endif
 
   fptr = (vrd1_t(*)(vrd1_t))MTH_DISPATCH_TBL[func_exp][sv_ds][frp_r];
   return (fptr(x));
@@ -2017,8 +2025,10 @@ MTH_DISPATCH_FUNC(__pd_exp_1)(vrd1_t x)
   vrd1_t (*fptr)(vrd1_t);
   _MTH_I_INIT();
   _MTH_I_STATS_INC(func_exp,sv_ds,frp_p);
+#if     ! defined(TARGET_X8664)
   if (_ISDZEROPT0(x))
     return 1.0;
+#endif
 
   fptr = (vrd1_t(*)(vrd1_t))MTH_DISPATCH_TBL[func_exp][sv_ds][frp_p];
   return (fptr(x));
@@ -3713,36 +3723,576 @@ MTH_DISPATCH_FUNC(__pd_sincos_2m)(vrd2_t x, vid2_t m)
   return (fptr(x, m));
 }
 
-//////////
-// EXPERIMENTAL - COMPLEX - start
-//////////
-float complex
-MTH_DISPATCH_FUNC(__fc_acos_1)(float complex x)
+vrs1_t
+MTH_DISPATCH_FUNC(__fs_aint_1)(vrs1_t x)
 {
-  float complex (*fptr)(float complex);
+  vrs1_t (*fptr)(vrs1_t);
+  _MTH_I_INIT();
+  _MTH_I_STATS_INC(func_aint,sv_ss,frp_f);
+  fptr = (vrs1_t(*)(vrs1_t))MTH_DISPATCH_TBL[func_aint][sv_ss][frp_f];
+  return (fptr(x));
+}
+
+vrs1_t
+MTH_DISPATCH_FUNC(__rs_aint_1)(vrs1_t x)
+{
+  vrs1_t (*fptr)(vrs1_t);
+  _MTH_I_INIT();
+  _MTH_I_STATS_INC(func_aint,sv_ss,frp_r);
+  fptr = (vrs1_t(*)(vrs1_t))MTH_DISPATCH_TBL[func_aint][sv_ss][frp_r];
+  return (fptr(x));
+}
+
+vrs1_t
+MTH_DISPATCH_FUNC(__ps_aint_1)(vrs1_t x)
+{
+  vrs1_t (*fptr)(vrs1_t);
+  _MTH_I_INIT();
+  _MTH_I_STATS_INC(func_aint,sv_ss,frp_p);
+  fptr = (vrs1_t(*)(vrs1_t))MTH_DISPATCH_TBL[func_aint][sv_ss][frp_p];
+  return (fptr(x));
+}
+
+vrs4_t
+MTH_DISPATCH_FUNC(__fs_aint_4)(vrs4_t x)
+{
+  vrs4_t (*fptr)(vrs4_t);
+  _MTH_I_INIT();
+  _MTH_I_STATS_INC(func_aint,sv_sv4,frp_f);
+  fptr = (vrs4_t(*)(vrs4_t))MTH_DISPATCH_TBL[func_aint][sv_sv4][frp_f];
+  return (fptr(x));
+}
+
+vrs4_t
+MTH_DISPATCH_FUNC(__rs_aint_4)(vrs4_t x)
+{
+  vrs4_t (*fptr)(vrs4_t);
+  _MTH_I_INIT();
+  _MTH_I_STATS_INC(func_aint,sv_sv4,frp_r);
+  fptr = (vrs4_t(*)(vrs4_t))MTH_DISPATCH_TBL[func_aint][sv_sv4][frp_r];
+  return (fptr(x));
+}
+
+vrs4_t
+MTH_DISPATCH_FUNC(__ps_aint_4)(vrs4_t x)
+{
+  vrs4_t (*fptr)(vrs4_t);
+  _MTH_I_INIT();
+  _MTH_I_STATS_INC(func_aint,sv_sv4,frp_p);
+  fptr = (vrs4_t(*)(vrs4_t))MTH_DISPATCH_TBL[func_aint][sv_sv4][frp_p];
+  return (fptr(x));
+}
+
+vrs4_t
+MTH_DISPATCH_FUNC(__fs_aint_4m)(vrs4_t x, vis4_t m)
+{
+  vrs4_t (*fptr)(vrs4_t, vis4_t);
+  _MTH_I_INIT();
+  _MTH_I_STATS_INC(func_aint,sv_sv4m,frp_f);
+  fptr = (vrs4_t(*)())MTH_DISPATCH_TBL[func_aint][sv_sv4m][frp_f];
+  return (fptr(x, m));
+}
+
+vrs4_t
+MTH_DISPATCH_FUNC(__rs_aint_4m)(vrs4_t x, vis4_t m)
+{
+  vrs4_t (*fptr)(vrs4_t, vis4_t);
+  _MTH_I_INIT();
+  _MTH_I_STATS_INC(func_aint,sv_sv4m,frp_r);
+  fptr = (vrs4_t(*)())MTH_DISPATCH_TBL[func_aint][sv_sv4m][frp_r];
+  return (fptr(x, m));
+}
+
+vrs4_t
+MTH_DISPATCH_FUNC(__ps_aint_4m)(vrs4_t x, vis4_t m)
+{
+  vrs4_t (*fptr)(vrs4_t, vis4_t);
+  _MTH_I_INIT();
+  _MTH_I_STATS_INC(func_aint,sv_sv4m,frp_p);
+  fptr = (vrs4_t(*)())MTH_DISPATCH_TBL[func_aint][sv_sv4m][frp_p];
+  return (fptr(x, m));
+}
+
+vrd1_t
+MTH_DISPATCH_FUNC(__fd_aint_1)(vrd1_t x)
+{
+  vrd1_t (*fptr)(vrd1_t);
+  _MTH_I_INIT();
+  _MTH_I_STATS_INC(func_aint,sv_ds,frp_f);
+  fptr = (vrd1_t(*)(vrd1_t))MTH_DISPATCH_TBL[func_aint][sv_ds][frp_f];
+  return (fptr(x));
+}
+
+vrd1_t
+MTH_DISPATCH_FUNC(__rd_aint_1)(vrd1_t x)
+{
+  vrd1_t (*fptr)(vrd1_t);
+  _MTH_I_INIT();
+  _MTH_I_STATS_INC(func_aint,sv_ds,frp_r);
+  fptr = (vrd1_t(*)(vrd1_t))MTH_DISPATCH_TBL[func_aint][sv_ds][frp_r];
+  return (fptr(x));
+}
+
+vrd1_t
+MTH_DISPATCH_FUNC(__pd_aint_1)(vrd1_t x)
+{
+  vrd1_t (*fptr)(vrd1_t);
+  _MTH_I_INIT();
+  _MTH_I_STATS_INC(func_aint,sv_ds,frp_p);
+  fptr = (vrd1_t(*)(vrd1_t))MTH_DISPATCH_TBL[func_aint][sv_ds][frp_p];
+  return (fptr(x));
+}
+
+vrd2_t
+MTH_DISPATCH_FUNC(__fd_aint_2)(vrd2_t x)
+{
+  vrd2_t (*fptr)(vrd2_t);
+  _MTH_I_INIT();
+  _MTH_I_STATS_INC(func_aint,sv_dv2,frp_f);
+  fptr = (vrd2_t(*)(vrd2_t))MTH_DISPATCH_TBL[func_aint][sv_dv2][frp_f];
+  return (fptr(x));
+}
+
+vrd2_t
+MTH_DISPATCH_FUNC(__rd_aint_2)(vrd2_t x)
+{
+  vrd2_t (*fptr)(vrd2_t);
+  _MTH_I_INIT();
+  _MTH_I_STATS_INC(func_aint,sv_dv2,frp_r);
+  fptr = (vrd2_t(*)(vrd2_t))MTH_DISPATCH_TBL[func_aint][sv_dv2][frp_r];
+  return (fptr(x));
+}
+
+vrd2_t
+MTH_DISPATCH_FUNC(__pd_aint_2)(vrd2_t x)
+{
+  vrd2_t (*fptr)(vrd2_t);
+  _MTH_I_INIT();
+  _MTH_I_STATS_INC(func_aint,sv_dv2,frp_p);
+  fptr = (vrd2_t(*)(vrd2_t))MTH_DISPATCH_TBL[func_aint][sv_dv2][frp_p];
+  return (fptr(x));
+}
+
+vrd2_t
+MTH_DISPATCH_FUNC(__fd_aint_2m)(vrd2_t x, vid2_t m)
+{
+  vrd2_t (*fptr)(vrd2_t, vid2_t);
+  _MTH_I_INIT();
+  _MTH_I_STATS_INC(func_aint,sv_dv2m,frp_f);
+  fptr = (vrd2_t(*)())MTH_DISPATCH_TBL[func_aint][sv_dv2m][frp_f];
+  return (fptr(x, m));
+}
+
+vrd2_t
+MTH_DISPATCH_FUNC(__rd_aint_2m)(vrd2_t x, vid2_t m)
+{
+  vrd2_t (*fptr)(vrd2_t, vid2_t);
+  _MTH_I_INIT();
+  _MTH_I_STATS_INC(func_aint,sv_dv2m,frp_r);
+  fptr = (vrd2_t(*)())MTH_DISPATCH_TBL[func_aint][sv_dv2m][frp_r];
+  return (fptr(x, m));
+}
+
+vrd2_t
+MTH_DISPATCH_FUNC(__pd_aint_2m)(vrd2_t x, vid2_t m)
+{
+  vrd2_t (*fptr)(vrd2_t, vid2_t);
+  _MTH_I_INIT();
+  _MTH_I_STATS_INC(func_aint,sv_dv2m,frp_p);
+  fptr = (vrd2_t(*)())MTH_DISPATCH_TBL[func_aint][sv_dv2m][frp_p];
+  return (fptr(x, m));
+}
+
+vrs1_t
+MTH_DISPATCH_FUNC(__fs_ceil_1)(vrs1_t x)
+{
+  vrs1_t (*fptr)(vrs1_t);
+  _MTH_I_INIT();
+  _MTH_I_STATS_INC(func_ceil,sv_ss,frp_f);
+  fptr = (vrs1_t(*)(vrs1_t))MTH_DISPATCH_TBL[func_ceil][sv_ss][frp_f];
+  return (fptr(x));
+}
+
+vrs1_t
+MTH_DISPATCH_FUNC(__rs_ceil_1)(vrs1_t x)
+{
+  vrs1_t (*fptr)(vrs1_t);
+  _MTH_I_INIT();
+  _MTH_I_STATS_INC(func_ceil,sv_ss,frp_r);
+  fptr = (vrs1_t(*)(vrs1_t))MTH_DISPATCH_TBL[func_ceil][sv_ss][frp_r];
+  return (fptr(x));
+}
+
+vrs1_t
+MTH_DISPATCH_FUNC(__ps_ceil_1)(vrs1_t x)
+{
+  vrs1_t (*fptr)(vrs1_t);
+  _MTH_I_INIT();
+  _MTH_I_STATS_INC(func_ceil,sv_ss,frp_p);
+  fptr = (vrs1_t(*)(vrs1_t))MTH_DISPATCH_TBL[func_ceil][sv_ss][frp_p];
+  return (fptr(x));
+}
+
+vrs4_t
+MTH_DISPATCH_FUNC(__fs_ceil_4)(vrs4_t x)
+{
+  vrs4_t (*fptr)(vrs4_t);
+  _MTH_I_INIT();
+  _MTH_I_STATS_INC(func_ceil,sv_sv4,frp_f);
+  fptr = (vrs4_t(*)(vrs4_t))MTH_DISPATCH_TBL[func_ceil][sv_sv4][frp_f];
+  return (fptr(x));
+}
+
+vrs4_t
+MTH_DISPATCH_FUNC(__rs_ceil_4)(vrs4_t x)
+{
+  vrs4_t (*fptr)(vrs4_t);
+  _MTH_I_INIT();
+  _MTH_I_STATS_INC(func_ceil,sv_sv4,frp_r);
+  fptr = (vrs4_t(*)(vrs4_t))MTH_DISPATCH_TBL[func_ceil][sv_sv4][frp_r];
+  return (fptr(x));
+}
+
+vrs4_t
+MTH_DISPATCH_FUNC(__ps_ceil_4)(vrs4_t x)
+{
+  vrs4_t (*fptr)(vrs4_t);
+  _MTH_I_INIT();
+  _MTH_I_STATS_INC(func_ceil,sv_sv4,frp_p);
+  fptr = (vrs4_t(*)(vrs4_t))MTH_DISPATCH_TBL[func_ceil][sv_sv4][frp_p];
+  return (fptr(x));
+}
+
+vrs4_t
+MTH_DISPATCH_FUNC(__fs_ceil_4m)(vrs4_t x, vis4_t m)
+{
+  vrs4_t (*fptr)(vrs4_t, vis4_t);
+  _MTH_I_INIT();
+  _MTH_I_STATS_INC(func_ceil,sv_sv4m,frp_f);
+  fptr = (vrs4_t(*)())MTH_DISPATCH_TBL[func_ceil][sv_sv4m][frp_f];
+  return (fptr(x, m));
+}
+
+vrs4_t
+MTH_DISPATCH_FUNC(__rs_ceil_4m)(vrs4_t x, vis4_t m)
+{
+  vrs4_t (*fptr)(vrs4_t, vis4_t);
+  _MTH_I_INIT();
+  _MTH_I_STATS_INC(func_ceil,sv_sv4m,frp_r);
+  fptr = (vrs4_t(*)())MTH_DISPATCH_TBL[func_ceil][sv_sv4m][frp_r];
+  return (fptr(x, m));
+}
+
+vrs4_t
+MTH_DISPATCH_FUNC(__ps_ceil_4m)(vrs4_t x, vis4_t m)
+{
+  vrs4_t (*fptr)(vrs4_t, vis4_t);
+  _MTH_I_INIT();
+  _MTH_I_STATS_INC(func_ceil,sv_sv4m,frp_p);
+  fptr = (vrs4_t(*)())MTH_DISPATCH_TBL[func_ceil][sv_sv4m][frp_p];
+  return (fptr(x, m));
+}
+
+vrd1_t
+MTH_DISPATCH_FUNC(__fd_ceil_1)(vrd1_t x)
+{
+  vrd1_t (*fptr)(vrd1_t);
+  _MTH_I_INIT();
+  _MTH_I_STATS_INC(func_ceil,sv_ds,frp_f);
+  fptr = (vrd1_t(*)(vrd1_t))MTH_DISPATCH_TBL[func_ceil][sv_ds][frp_f];
+  return (fptr(x));
+}
+
+vrd1_t
+MTH_DISPATCH_FUNC(__rd_ceil_1)(vrd1_t x)
+{
+  vrd1_t (*fptr)(vrd1_t);
+  _MTH_I_INIT();
+  _MTH_I_STATS_INC(func_ceil,sv_ds,frp_r);
+  fptr = (vrd1_t(*)(vrd1_t))MTH_DISPATCH_TBL[func_ceil][sv_ds][frp_r];
+  return (fptr(x));
+}
+
+vrd1_t
+MTH_DISPATCH_FUNC(__pd_ceil_1)(vrd1_t x)
+{
+  vrd1_t (*fptr)(vrd1_t);
+  _MTH_I_INIT();
+  _MTH_I_STATS_INC(func_ceil,sv_ds,frp_p);
+  fptr = (vrd1_t(*)(vrd1_t))MTH_DISPATCH_TBL[func_ceil][sv_ds][frp_p];
+  return (fptr(x));
+}
+
+vrd2_t
+MTH_DISPATCH_FUNC(__fd_ceil_2)(vrd2_t x)
+{
+  vrd2_t (*fptr)(vrd2_t);
+  _MTH_I_INIT();
+  _MTH_I_STATS_INC(func_ceil,sv_dv2,frp_f);
+  fptr = (vrd2_t(*)(vrd2_t))MTH_DISPATCH_TBL[func_ceil][sv_dv2][frp_f];
+  return (fptr(x));
+}
+
+vrd2_t
+MTH_DISPATCH_FUNC(__rd_ceil_2)(vrd2_t x)
+{
+  vrd2_t (*fptr)(vrd2_t);
+  _MTH_I_INIT();
+  _MTH_I_STATS_INC(func_ceil,sv_dv2,frp_r);
+  fptr = (vrd2_t(*)(vrd2_t))MTH_DISPATCH_TBL[func_ceil][sv_dv2][frp_r];
+  return (fptr(x));
+}
+
+vrd2_t
+MTH_DISPATCH_FUNC(__pd_ceil_2)(vrd2_t x)
+{
+  vrd2_t (*fptr)(vrd2_t);
+  _MTH_I_INIT();
+  _MTH_I_STATS_INC(func_ceil,sv_dv2,frp_p);
+  fptr = (vrd2_t(*)(vrd2_t))MTH_DISPATCH_TBL[func_ceil][sv_dv2][frp_p];
+  return (fptr(x));
+}
+
+vrd2_t
+MTH_DISPATCH_FUNC(__fd_ceil_2m)(vrd2_t x, vid2_t m)
+{
+  vrd2_t (*fptr)(vrd2_t, vid2_t);
+  _MTH_I_INIT();
+  _MTH_I_STATS_INC(func_ceil,sv_dv2m,frp_f);
+  fptr = (vrd2_t(*)())MTH_DISPATCH_TBL[func_ceil][sv_dv2m][frp_f];
+  return (fptr(x, m));
+}
+
+vrd2_t
+MTH_DISPATCH_FUNC(__rd_ceil_2m)(vrd2_t x, vid2_t m)
+{
+  vrd2_t (*fptr)(vrd2_t, vid2_t);
+  _MTH_I_INIT();
+  _MTH_I_STATS_INC(func_ceil,sv_dv2m,frp_r);
+  fptr = (vrd2_t(*)())MTH_DISPATCH_TBL[func_ceil][sv_dv2m][frp_r];
+  return (fptr(x, m));
+}
+
+vrd2_t
+MTH_DISPATCH_FUNC(__pd_ceil_2m)(vrd2_t x, vid2_t m)
+{
+  vrd2_t (*fptr)(vrd2_t, vid2_t);
+  _MTH_I_INIT();
+  _MTH_I_STATS_INC(func_ceil,sv_dv2m,frp_p);
+  fptr = (vrd2_t(*)())MTH_DISPATCH_TBL[func_ceil][sv_dv2m][frp_p];
+  return (fptr(x, m));
+}
+
+vrs1_t
+MTH_DISPATCH_FUNC(__fs_floor_1)(vrs1_t x)
+{
+  vrs1_t (*fptr)(vrs1_t);
+  _MTH_I_INIT();
+  _MTH_I_STATS_INC(func_floor,sv_ss,frp_f);
+  fptr = (vrs1_t(*)(vrs1_t))MTH_DISPATCH_TBL[func_floor][sv_ss][frp_f];
+  return (fptr(x));
+}
+
+vrs1_t
+MTH_DISPATCH_FUNC(__rs_floor_1)(vrs1_t x)
+{
+  vrs1_t (*fptr)(vrs1_t);
+  _MTH_I_INIT();
+  _MTH_I_STATS_INC(func_floor,sv_ss,frp_r);
+  fptr = (vrs1_t(*)(vrs1_t))MTH_DISPATCH_TBL[func_floor][sv_ss][frp_r];
+  return (fptr(x));
+}
+
+vrs1_t
+MTH_DISPATCH_FUNC(__ps_floor_1)(vrs1_t x)
+{
+  vrs1_t (*fptr)(vrs1_t);
+  _MTH_I_INIT();
+  _MTH_I_STATS_INC(func_floor,sv_ss,frp_p);
+  fptr = (vrs1_t(*)(vrs1_t))MTH_DISPATCH_TBL[func_floor][sv_ss][frp_p];
+  return (fptr(x));
+}
+
+vrs4_t
+MTH_DISPATCH_FUNC(__fs_floor_4)(vrs4_t x)
+{
+  vrs4_t (*fptr)(vrs4_t);
+  _MTH_I_INIT();
+  _MTH_I_STATS_INC(func_floor,sv_sv4,frp_f);
+  fptr = (vrs4_t(*)(vrs4_t))MTH_DISPATCH_TBL[func_floor][sv_sv4][frp_f];
+  return (fptr(x));
+}
+
+vrs4_t
+MTH_DISPATCH_FUNC(__rs_floor_4)(vrs4_t x)
+{
+  vrs4_t (*fptr)(vrs4_t);
+  _MTH_I_INIT();
+  _MTH_I_STATS_INC(func_floor,sv_sv4,frp_r);
+  fptr = (vrs4_t(*)(vrs4_t))MTH_DISPATCH_TBL[func_floor][sv_sv4][frp_r];
+  return (fptr(x));
+}
+
+vrs4_t
+MTH_DISPATCH_FUNC(__ps_floor_4)(vrs4_t x)
+{
+  vrs4_t (*fptr)(vrs4_t);
+  _MTH_I_INIT();
+  _MTH_I_STATS_INC(func_floor,sv_sv4,frp_p);
+  fptr = (vrs4_t(*)(vrs4_t))MTH_DISPATCH_TBL[func_floor][sv_sv4][frp_p];
+  return (fptr(x));
+}
+
+vrs4_t
+MTH_DISPATCH_FUNC(__fs_floor_4m)(vrs4_t x, vis4_t m)
+{
+  vrs4_t (*fptr)(vrs4_t, vis4_t);
+  _MTH_I_INIT();
+  _MTH_I_STATS_INC(func_floor,sv_sv4m,frp_f);
+  fptr = (vrs4_t(*)())MTH_DISPATCH_TBL[func_floor][sv_sv4m][frp_f];
+  return (fptr(x, m));
+}
+
+vrs4_t
+MTH_DISPATCH_FUNC(__rs_floor_4m)(vrs4_t x, vis4_t m)
+{
+  vrs4_t (*fptr)(vrs4_t, vis4_t);
+  _MTH_I_INIT();
+  _MTH_I_STATS_INC(func_floor,sv_sv4m,frp_r);
+  fptr = (vrs4_t(*)())MTH_DISPATCH_TBL[func_floor][sv_sv4m][frp_r];
+  return (fptr(x, m));
+}
+
+vrs4_t
+MTH_DISPATCH_FUNC(__ps_floor_4m)(vrs4_t x, vis4_t m)
+{
+  vrs4_t (*fptr)(vrs4_t, vis4_t);
+  _MTH_I_INIT();
+  _MTH_I_STATS_INC(func_floor,sv_sv4m,frp_p);
+  fptr = (vrs4_t(*)())MTH_DISPATCH_TBL[func_floor][sv_sv4m][frp_p];
+  return (fptr(x, m));
+}
+
+vrd1_t
+MTH_DISPATCH_FUNC(__fd_floor_1)(vrd1_t x)
+{
+  vrd1_t (*fptr)(vrd1_t);
+  _MTH_I_INIT();
+  _MTH_I_STATS_INC(func_floor,sv_ds,frp_f);
+  fptr = (vrd1_t(*)(vrd1_t))MTH_DISPATCH_TBL[func_floor][sv_ds][frp_f];
+  return (fptr(x));
+}
+
+vrd1_t
+MTH_DISPATCH_FUNC(__rd_floor_1)(vrd1_t x)
+{
+  vrd1_t (*fptr)(vrd1_t);
+  _MTH_I_INIT();
+  _MTH_I_STATS_INC(func_floor,sv_ds,frp_r);
+  fptr = (vrd1_t(*)(vrd1_t))MTH_DISPATCH_TBL[func_floor][sv_ds][frp_r];
+  return (fptr(x));
+}
+
+vrd1_t
+MTH_DISPATCH_FUNC(__pd_floor_1)(vrd1_t x)
+{
+  vrd1_t (*fptr)(vrd1_t);
+  _MTH_I_INIT();
+  _MTH_I_STATS_INC(func_floor,sv_ds,frp_p);
+  fptr = (vrd1_t(*)(vrd1_t))MTH_DISPATCH_TBL[func_floor][sv_ds][frp_p];
+  return (fptr(x));
+}
+
+vrd2_t
+MTH_DISPATCH_FUNC(__fd_floor_2)(vrd2_t x)
+{
+  vrd2_t (*fptr)(vrd2_t);
+  _MTH_I_INIT();
+  _MTH_I_STATS_INC(func_floor,sv_dv2,frp_f);
+  fptr = (vrd2_t(*)(vrd2_t))MTH_DISPATCH_TBL[func_floor][sv_dv2][frp_f];
+  return (fptr(x));
+}
+
+vrd2_t
+MTH_DISPATCH_FUNC(__rd_floor_2)(vrd2_t x)
+{
+  vrd2_t (*fptr)(vrd2_t);
+  _MTH_I_INIT();
+  _MTH_I_STATS_INC(func_floor,sv_dv2,frp_r);
+  fptr = (vrd2_t(*)(vrd2_t))MTH_DISPATCH_TBL[func_floor][sv_dv2][frp_r];
+  return (fptr(x));
+}
+
+vrd2_t
+MTH_DISPATCH_FUNC(__pd_floor_2)(vrd2_t x)
+{
+  vrd2_t (*fptr)(vrd2_t);
+  _MTH_I_INIT();
+  _MTH_I_STATS_INC(func_floor,sv_dv2,frp_p);
+  fptr = (vrd2_t(*)(vrd2_t))MTH_DISPATCH_TBL[func_floor][sv_dv2][frp_p];
+  return (fptr(x));
+}
+
+vrd2_t
+MTH_DISPATCH_FUNC(__fd_floor_2m)(vrd2_t x, vid2_t m)
+{
+  vrd2_t (*fptr)(vrd2_t, vid2_t);
+  _MTH_I_INIT();
+  _MTH_I_STATS_INC(func_floor,sv_dv2m,frp_f);
+  fptr = (vrd2_t(*)())MTH_DISPATCH_TBL[func_floor][sv_dv2m][frp_f];
+  return (fptr(x, m));
+}
+
+vrd2_t
+MTH_DISPATCH_FUNC(__rd_floor_2m)(vrd2_t x, vid2_t m)
+{
+  vrd2_t (*fptr)(vrd2_t, vid2_t);
+  _MTH_I_INIT();
+  _MTH_I_STATS_INC(func_floor,sv_dv2m,frp_r);
+  fptr = (vrd2_t(*)())MTH_DISPATCH_TBL[func_floor][sv_dv2m][frp_r];
+  return (fptr(x, m));
+}
+
+vrd2_t
+MTH_DISPATCH_FUNC(__pd_floor_2m)(vrd2_t x, vid2_t m)
+{
+  vrd2_t (*fptr)(vrd2_t, vid2_t);
+  _MTH_I_INIT();
+  _MTH_I_STATS_INC(func_floor,sv_dv2m,frp_p);
+  fptr = (vrd2_t(*)())MTH_DISPATCH_TBL[func_floor][sv_dv2m][frp_p];
+  return (fptr(x, m));
+}
+
+//////////
+// EXPERIMENTAL - _Complex - start
+//////////
+float _Complex
+MTH_DISPATCH_FUNC(__fc_acos_1)(float _Complex x)
+{
+  float _Complex (*fptr)(float _Complex);
   _MTH_I_INIT();
   _MTH_I_STATS_INC(func_acos,sv_cs,frp_f);
-  fptr = (float complex(*)(float complex))MTH_DISPATCH_TBL[func_acos][sv_cs][frp_f];
+  fptr = (float _Complex(*)(float _Complex))MTH_DISPATCH_TBL[func_acos][sv_cs][frp_f];
   return (fptr(x));
 }
 
-float complex
-MTH_DISPATCH_FUNC(__rc_acos_1)(float complex x)
+float _Complex
+MTH_DISPATCH_FUNC(__rc_acos_1)(float _Complex x)
 {
-  float complex (*fptr)(float complex);
+  float _Complex (*fptr)(float _Complex);
   _MTH_I_INIT();
   _MTH_I_STATS_INC(func_acos,sv_cs,frp_r);
-  fptr = (float complex(*)(float complex))MTH_DISPATCH_TBL[func_acos][sv_cs][frp_r];
+  fptr = (float _Complex(*)(float _Complex))MTH_DISPATCH_TBL[func_acos][sv_cs][frp_r];
   return (fptr(x));
 }
 
-float complex
-MTH_DISPATCH_FUNC(__pc_acos_1)(float complex x)
+float _Complex
+MTH_DISPATCH_FUNC(__pc_acos_1)(float _Complex x)
 {
-  float complex (*fptr)(float complex);
+  float _Complex (*fptr)(float _Complex);
   _MTH_I_INIT();
   _MTH_I_STATS_INC(func_acos,sv_cs,frp_p);
-  fptr = (float complex(*)(float complex))MTH_DISPATCH_TBL[func_acos][sv_cs][frp_p];
+  fptr = (float _Complex(*)(float _Complex))MTH_DISPATCH_TBL[func_acos][sv_cs][frp_p];
   return (fptr(x));
 }
 
@@ -3806,63 +4356,63 @@ MTH_DISPATCH_FUNC(__pc_acos_2m)(vcs2_t x, vis2_t m)
   return (fptr(x, m));
 }
 
-double complex
-MTH_DISPATCH_FUNC(__fz_acos_1)(double complex x)
+double _Complex
+MTH_DISPATCH_FUNC(__fz_acos_1)(double _Complex x)
 {
-  double complex (*fptr)(double complex);
+  double _Complex (*fptr)(double _Complex);
   _MTH_I_INIT();
   _MTH_I_STATS_INC(func_acos,sv_zs,frp_f);
-  fptr = (double complex(*)(double complex))MTH_DISPATCH_TBL[func_acos][sv_zs][frp_f];
+  fptr = (double _Complex(*)(double _Complex))MTH_DISPATCH_TBL[func_acos][sv_zs][frp_f];
   return (fptr(x));
 }
 
-double complex
-MTH_DISPATCH_FUNC(__rz_acos_1)(double complex x)
+double _Complex
+MTH_DISPATCH_FUNC(__rz_acos_1)(double _Complex x)
 {
-  double complex (*fptr)(double complex);
+  double _Complex (*fptr)(double _Complex);
   _MTH_I_INIT();
   _MTH_I_STATS_INC(func_acos,sv_zs,frp_r);
-  fptr = (double complex(*)(double complex))MTH_DISPATCH_TBL[func_acos][sv_zs][frp_r];
+  fptr = (double _Complex(*)(double _Complex))MTH_DISPATCH_TBL[func_acos][sv_zs][frp_r];
   return (fptr(x));
 }
 
-double complex
-MTH_DISPATCH_FUNC(__pz_acos_1)(double complex x)
+double _Complex
+MTH_DISPATCH_FUNC(__pz_acos_1)(double _Complex x)
 {
-  double complex (*fptr)(double complex);
+  double _Complex (*fptr)(double _Complex);
   _MTH_I_INIT();
   _MTH_I_STATS_INC(func_acos,sv_zs,frp_p);
-  fptr = (double complex(*)(double complex))MTH_DISPATCH_TBL[func_acos][sv_zs][frp_p];
+  fptr = (double _Complex(*)(double _Complex))MTH_DISPATCH_TBL[func_acos][sv_zs][frp_p];
   return (fptr(x));
 }
 
-float complex
-MTH_DISPATCH_FUNC(__fc_asin_1)(float complex x)
+float _Complex
+MTH_DISPATCH_FUNC(__fc_asin_1)(float _Complex x)
 {
-  float complex (*fptr)(float complex);
+  float _Complex (*fptr)(float _Complex);
   _MTH_I_INIT();
   _MTH_I_STATS_INC(func_asin,sv_cs,frp_f);
-  fptr = (float complex(*)(float complex))MTH_DISPATCH_TBL[func_asin][sv_cs][frp_f];
+  fptr = (float _Complex(*)(float _Complex))MTH_DISPATCH_TBL[func_asin][sv_cs][frp_f];
   return (fptr(x));
 }
 
-float complex
-MTH_DISPATCH_FUNC(__rc_asin_1)(float complex x)
+float _Complex
+MTH_DISPATCH_FUNC(__rc_asin_1)(float _Complex x)
 {
-  float complex (*fptr)(float complex);
+  float _Complex (*fptr)(float _Complex);
   _MTH_I_INIT();
   _MTH_I_STATS_INC(func_asin,sv_cs,frp_r);
-  fptr = (float complex(*)(float complex))MTH_DISPATCH_TBL[func_asin][sv_cs][frp_r];
+  fptr = (float _Complex(*)(float _Complex))MTH_DISPATCH_TBL[func_asin][sv_cs][frp_r];
   return (fptr(x));
 }
 
-float complex
-MTH_DISPATCH_FUNC(__pc_asin_1)(float complex x)
+float _Complex
+MTH_DISPATCH_FUNC(__pc_asin_1)(float _Complex x)
 {
-  float complex (*fptr)(float complex);
+  float _Complex (*fptr)(float _Complex);
   _MTH_I_INIT();
   _MTH_I_STATS_INC(func_asin,sv_cs,frp_p);
-  fptr = (float complex(*)(float complex))MTH_DISPATCH_TBL[func_asin][sv_cs][frp_p];
+  fptr = (float _Complex(*)(float _Complex))MTH_DISPATCH_TBL[func_asin][sv_cs][frp_p];
   return (fptr(x));
 }
 
@@ -3926,63 +4476,63 @@ MTH_DISPATCH_FUNC(__pc_asin_2m)(vcs2_t x, vis2_t m)
   return (fptr(x, m));
 }
 
-double complex
-MTH_DISPATCH_FUNC(__fz_asin_1)(double complex x)
+double _Complex
+MTH_DISPATCH_FUNC(__fz_asin_1)(double _Complex x)
 {
-  double complex (*fptr)(double complex);
+  double _Complex (*fptr)(double _Complex);
   _MTH_I_INIT();
   _MTH_I_STATS_INC(func_asin,sv_zs,frp_f);
-  fptr = (double complex(*)(double complex))MTH_DISPATCH_TBL[func_asin][sv_zs][frp_f];
+  fptr = (double _Complex(*)(double _Complex))MTH_DISPATCH_TBL[func_asin][sv_zs][frp_f];
   return (fptr(x));
 }
 
-double complex
-MTH_DISPATCH_FUNC(__rz_asin_1)(double complex x)
+double _Complex
+MTH_DISPATCH_FUNC(__rz_asin_1)(double _Complex x)
 {
-  double complex (*fptr)(double complex);
+  double _Complex (*fptr)(double _Complex);
   _MTH_I_INIT();
   _MTH_I_STATS_INC(func_asin,sv_zs,frp_r);
-  fptr = (double complex(*)(double complex))MTH_DISPATCH_TBL[func_asin][sv_zs][frp_r];
+  fptr = (double _Complex(*)(double _Complex))MTH_DISPATCH_TBL[func_asin][sv_zs][frp_r];
   return (fptr(x));
 }
 
-double complex
-MTH_DISPATCH_FUNC(__pz_asin_1)(double complex x)
+double _Complex
+MTH_DISPATCH_FUNC(__pz_asin_1)(double _Complex x)
 {
-  double complex (*fptr)(double complex);
+  double _Complex (*fptr)(double _Complex);
   _MTH_I_INIT();
   _MTH_I_STATS_INC(func_asin,sv_zs,frp_p);
-  fptr = (double complex(*)(double complex))MTH_DISPATCH_TBL[func_asin][sv_zs][frp_p];
+  fptr = (double _Complex(*)(double _Complex))MTH_DISPATCH_TBL[func_asin][sv_zs][frp_p];
   return (fptr(x));
 }
 
-float complex
-MTH_DISPATCH_FUNC(__fc_atan_1)(float complex x)
+float _Complex
+MTH_DISPATCH_FUNC(__fc_atan_1)(float _Complex x)
 {
-  float complex (*fptr)(float complex);
+  float _Complex (*fptr)(float _Complex);
   _MTH_I_INIT();
   _MTH_I_STATS_INC(func_atan,sv_cs,frp_f);
-  fptr = (float complex(*)(float complex))MTH_DISPATCH_TBL[func_atan][sv_cs][frp_f];
+  fptr = (float _Complex(*)(float _Complex))MTH_DISPATCH_TBL[func_atan][sv_cs][frp_f];
   return (fptr(x));
 }
 
-float complex
-MTH_DISPATCH_FUNC(__rc_atan_1)(float complex x)
+float _Complex
+MTH_DISPATCH_FUNC(__rc_atan_1)(float _Complex x)
 {
-  float complex (*fptr)(float complex);
+  float _Complex (*fptr)(float _Complex);
   _MTH_I_INIT();
   _MTH_I_STATS_INC(func_atan,sv_cs,frp_r);
-  fptr = (float complex(*)(float complex))MTH_DISPATCH_TBL[func_atan][sv_cs][frp_r];
+  fptr = (float _Complex(*)(float _Complex))MTH_DISPATCH_TBL[func_atan][sv_cs][frp_r];
   return (fptr(x));
 }
 
-float complex
-MTH_DISPATCH_FUNC(__pc_atan_1)(float complex x)
+float _Complex
+MTH_DISPATCH_FUNC(__pc_atan_1)(float _Complex x)
 {
-  float complex (*fptr)(float complex);
+  float _Complex (*fptr)(float _Complex);
   _MTH_I_INIT();
   _MTH_I_STATS_INC(func_atan,sv_cs,frp_p);
-  fptr = (float complex(*)(float complex))MTH_DISPATCH_TBL[func_atan][sv_cs][frp_p];
+  fptr = (float _Complex(*)(float _Complex))MTH_DISPATCH_TBL[func_atan][sv_cs][frp_p];
   return (fptr(x));
 }
 
@@ -4046,63 +4596,63 @@ MTH_DISPATCH_FUNC(__pc_atan_2m)(vcs2_t x, vis2_t m)
   return (fptr(x, m));
 }
 
-double complex
-MTH_DISPATCH_FUNC(__fz_atan_1)(double complex x)
+double _Complex
+MTH_DISPATCH_FUNC(__fz_atan_1)(double _Complex x)
 {
-  double complex (*fptr)(double complex);
+  double _Complex (*fptr)(double _Complex);
   _MTH_I_INIT();
   _MTH_I_STATS_INC(func_atan,sv_zs,frp_f);
-  fptr = (double complex(*)(double complex))MTH_DISPATCH_TBL[func_atan][sv_zs][frp_f];
+  fptr = (double _Complex(*)(double _Complex))MTH_DISPATCH_TBL[func_atan][sv_zs][frp_f];
   return (fptr(x));
 }
 
-double complex
-MTH_DISPATCH_FUNC(__rz_atan_1)(double complex x)
+double _Complex
+MTH_DISPATCH_FUNC(__rz_atan_1)(double _Complex x)
 {
-  double complex (*fptr)(double complex);
+  double _Complex (*fptr)(double _Complex);
   _MTH_I_INIT();
   _MTH_I_STATS_INC(func_atan,sv_zs,frp_r);
-  fptr = (double complex(*)(double complex))MTH_DISPATCH_TBL[func_atan][sv_zs][frp_r];
+  fptr = (double _Complex(*)(double _Complex))MTH_DISPATCH_TBL[func_atan][sv_zs][frp_r];
   return (fptr(x));
 }
 
-double complex
-MTH_DISPATCH_FUNC(__pz_atan_1)(double complex x)
+double _Complex
+MTH_DISPATCH_FUNC(__pz_atan_1)(double _Complex x)
 {
-  double complex (*fptr)(double complex);
+  double _Complex (*fptr)(double _Complex);
   _MTH_I_INIT();
   _MTH_I_STATS_INC(func_atan,sv_zs,frp_p);
-  fptr = (double complex(*)(double complex))MTH_DISPATCH_TBL[func_atan][sv_zs][frp_p];
+  fptr = (double _Complex(*)(double _Complex))MTH_DISPATCH_TBL[func_atan][sv_zs][frp_p];
   return (fptr(x));
 }
 
-float complex
-MTH_DISPATCH_FUNC(__fc_cos_1)(float complex x)
+float _Complex
+MTH_DISPATCH_FUNC(__fc_cos_1)(float _Complex x)
 {
-  float complex (*fptr)(float complex);
+  float _Complex (*fptr)(float _Complex);
   _MTH_I_INIT();
   _MTH_I_STATS_INC(func_cos,sv_cs,frp_f);
-  fptr = (float complex(*)(float complex))MTH_DISPATCH_TBL[func_cos][sv_cs][frp_f];
+  fptr = (float _Complex(*)(float _Complex))MTH_DISPATCH_TBL[func_cos][sv_cs][frp_f];
   return (fptr(x));
 }
 
-float complex
-MTH_DISPATCH_FUNC(__rc_cos_1)(float complex x)
+float _Complex
+MTH_DISPATCH_FUNC(__rc_cos_1)(float _Complex x)
 {
-  float complex (*fptr)(float complex);
+  float _Complex (*fptr)(float _Complex);
   _MTH_I_INIT();
   _MTH_I_STATS_INC(func_cos,sv_cs,frp_r);
-  fptr = (float complex(*)(float complex))MTH_DISPATCH_TBL[func_cos][sv_cs][frp_r];
+  fptr = (float _Complex(*)(float _Complex))MTH_DISPATCH_TBL[func_cos][sv_cs][frp_r];
   return (fptr(x));
 }
 
-float complex
-MTH_DISPATCH_FUNC(__pc_cos_1)(float complex x)
+float _Complex
+MTH_DISPATCH_FUNC(__pc_cos_1)(float _Complex x)
 {
-  float complex (*fptr)(float complex);
+  float _Complex (*fptr)(float _Complex);
   _MTH_I_INIT();
   _MTH_I_STATS_INC(func_cos,sv_cs,frp_p);
-  fptr = (float complex(*)(float complex))MTH_DISPATCH_TBL[func_cos][sv_cs][frp_p];
+  fptr = (float _Complex(*)(float _Complex))MTH_DISPATCH_TBL[func_cos][sv_cs][frp_p];
   return (fptr(x));
 }
 
@@ -4166,63 +4716,63 @@ MTH_DISPATCH_FUNC(__pc_cos_2m)(vcs2_t x, vis2_t m)
   return (fptr(x, m));
 }
 
-double complex
-MTH_DISPATCH_FUNC(__fz_cos_1)(double complex x)
+double _Complex
+MTH_DISPATCH_FUNC(__fz_cos_1)(double _Complex x)
 {
-  double complex (*fptr)(double complex);
+  double _Complex (*fptr)(double _Complex);
   _MTH_I_INIT();
   _MTH_I_STATS_INC(func_cos,sv_zs,frp_f);
-  fptr = (double complex(*)(double complex))MTH_DISPATCH_TBL[func_cos][sv_zs][frp_f];
+  fptr = (double _Complex(*)(double _Complex))MTH_DISPATCH_TBL[func_cos][sv_zs][frp_f];
   return (fptr(x));
 }
 
-double complex
-MTH_DISPATCH_FUNC(__rz_cos_1)(double complex x)
+double _Complex
+MTH_DISPATCH_FUNC(__rz_cos_1)(double _Complex x)
 {
-  double complex (*fptr)(double complex);
+  double _Complex (*fptr)(double _Complex);
   _MTH_I_INIT();
   _MTH_I_STATS_INC(func_cos,sv_zs,frp_r);
-  fptr = (double complex(*)(double complex))MTH_DISPATCH_TBL[func_cos][sv_zs][frp_r];
+  fptr = (double _Complex(*)(double _Complex))MTH_DISPATCH_TBL[func_cos][sv_zs][frp_r];
   return (fptr(x));
 }
 
-double complex
-MTH_DISPATCH_FUNC(__pz_cos_1)(double complex x)
+double _Complex
+MTH_DISPATCH_FUNC(__pz_cos_1)(double _Complex x)
 {
-  double complex (*fptr)(double complex);
+  double _Complex (*fptr)(double _Complex);
   _MTH_I_INIT();
   _MTH_I_STATS_INC(func_cos,sv_zs,frp_p);
-  fptr = (double complex(*)(double complex))MTH_DISPATCH_TBL[func_cos][sv_zs][frp_p];
+  fptr = (double _Complex(*)(double _Complex))MTH_DISPATCH_TBL[func_cos][sv_zs][frp_p];
   return (fptr(x));
 }
 
-float complex
-MTH_DISPATCH_FUNC(__fc_sin_1)(float complex x)
+float _Complex
+MTH_DISPATCH_FUNC(__fc_sin_1)(float _Complex x)
 {
-  float complex (*fptr)(float complex);
+  float _Complex (*fptr)(float _Complex);
   _MTH_I_INIT();
   _MTH_I_STATS_INC(func_sin,sv_cs,frp_f);
-  fptr = (float complex(*)(float complex))MTH_DISPATCH_TBL[func_sin][sv_cs][frp_f];
+  fptr = (float _Complex(*)(float _Complex))MTH_DISPATCH_TBL[func_sin][sv_cs][frp_f];
   return (fptr(x));
 }
 
-float complex
-MTH_DISPATCH_FUNC(__rc_sin_1)(float complex x)
+float _Complex
+MTH_DISPATCH_FUNC(__rc_sin_1)(float _Complex x)
 {
-  float complex (*fptr)(float complex);
+  float _Complex (*fptr)(float _Complex);
   _MTH_I_INIT();
   _MTH_I_STATS_INC(func_sin,sv_cs,frp_r);
-  fptr = (float complex(*)(float complex))MTH_DISPATCH_TBL[func_sin][sv_cs][frp_r];
+  fptr = (float _Complex(*)(float _Complex))MTH_DISPATCH_TBL[func_sin][sv_cs][frp_r];
   return (fptr(x));
 }
 
-float complex
-MTH_DISPATCH_FUNC(__pc_sin_1)(float complex x)
+float _Complex
+MTH_DISPATCH_FUNC(__pc_sin_1)(float _Complex x)
 {
-  float complex (*fptr)(float complex);
+  float _Complex (*fptr)(float _Complex);
   _MTH_I_INIT();
   _MTH_I_STATS_INC(func_sin,sv_cs,frp_p);
-  fptr = (float complex(*)(float complex))MTH_DISPATCH_TBL[func_sin][sv_cs][frp_p];
+  fptr = (float _Complex(*)(float _Complex))MTH_DISPATCH_TBL[func_sin][sv_cs][frp_p];
   return (fptr(x));
 }
 
@@ -4286,63 +4836,63 @@ MTH_DISPATCH_FUNC(__pc_sin_2m)(vcs2_t x, vis2_t m)
   return (fptr(x, m));
 }
 
-double complex
-MTH_DISPATCH_FUNC(__fz_sin_1)(double complex x)
+double _Complex
+MTH_DISPATCH_FUNC(__fz_sin_1)(double _Complex x)
 {
-  double complex (*fptr)(double complex);
+  double _Complex (*fptr)(double _Complex);
   _MTH_I_INIT();
   _MTH_I_STATS_INC(func_sin,sv_zs,frp_f);
-  fptr = (double complex(*)(double complex))MTH_DISPATCH_TBL[func_sin][sv_zs][frp_f];
+  fptr = (double _Complex(*)(double _Complex))MTH_DISPATCH_TBL[func_sin][sv_zs][frp_f];
   return (fptr(x));
 }
 
-double complex
-MTH_DISPATCH_FUNC(__rz_sin_1)(double complex x)
+double _Complex
+MTH_DISPATCH_FUNC(__rz_sin_1)(double _Complex x)
 {
-  double complex (*fptr)(double complex);
+  double _Complex (*fptr)(double _Complex);
   _MTH_I_INIT();
   _MTH_I_STATS_INC(func_sin,sv_zs,frp_r);
-  fptr = (double complex(*)(double complex))MTH_DISPATCH_TBL[func_sin][sv_zs][frp_r];
+  fptr = (double _Complex(*)(double _Complex))MTH_DISPATCH_TBL[func_sin][sv_zs][frp_r];
   return (fptr(x));
 }
 
-double complex
-MTH_DISPATCH_FUNC(__pz_sin_1)(double complex x)
+double _Complex
+MTH_DISPATCH_FUNC(__pz_sin_1)(double _Complex x)
 {
-  double complex (*fptr)(double complex);
+  double _Complex (*fptr)(double _Complex);
   _MTH_I_INIT();
   _MTH_I_STATS_INC(func_sin,sv_zs,frp_p);
-  fptr = (double complex(*)(double complex))MTH_DISPATCH_TBL[func_sin][sv_zs][frp_p];
+  fptr = (double _Complex(*)(double _Complex))MTH_DISPATCH_TBL[func_sin][sv_zs][frp_p];
   return (fptr(x));
 }
 
-float complex
-MTH_DISPATCH_FUNC(__fc_tan_1)(float complex x)
+float _Complex
+MTH_DISPATCH_FUNC(__fc_tan_1)(float _Complex x)
 {
-  float complex (*fptr)(float complex);
+  float _Complex (*fptr)(float _Complex);
   _MTH_I_INIT();
   _MTH_I_STATS_INC(func_tan,sv_cs,frp_f);
-  fptr = (float complex(*)(float complex))MTH_DISPATCH_TBL[func_tan][sv_cs][frp_f];
+  fptr = (float _Complex(*)(float _Complex))MTH_DISPATCH_TBL[func_tan][sv_cs][frp_f];
   return (fptr(x));
 }
 
-float complex
-MTH_DISPATCH_FUNC(__rc_tan_1)(float complex x)
+float _Complex
+MTH_DISPATCH_FUNC(__rc_tan_1)(float _Complex x)
 {
-  float complex (*fptr)(float complex);
+  float _Complex (*fptr)(float _Complex);
   _MTH_I_INIT();
   _MTH_I_STATS_INC(func_tan,sv_cs,frp_r);
-  fptr = (float complex(*)(float complex))MTH_DISPATCH_TBL[func_tan][sv_cs][frp_r];
+  fptr = (float _Complex(*)(float _Complex))MTH_DISPATCH_TBL[func_tan][sv_cs][frp_r];
   return (fptr(x));
 }
 
-float complex
-MTH_DISPATCH_FUNC(__pc_tan_1)(float complex x)
+float _Complex
+MTH_DISPATCH_FUNC(__pc_tan_1)(float _Complex x)
 {
-  float complex (*fptr)(float complex);
+  float _Complex (*fptr)(float _Complex);
   _MTH_I_INIT();
   _MTH_I_STATS_INC(func_tan,sv_cs,frp_p);
-  fptr = (float complex(*)(float complex))MTH_DISPATCH_TBL[func_tan][sv_cs][frp_p];
+  fptr = (float _Complex(*)(float _Complex))MTH_DISPATCH_TBL[func_tan][sv_cs][frp_p];
   return (fptr(x));
 }
 
@@ -4406,63 +4956,63 @@ MTH_DISPATCH_FUNC(__pc_tan_2m)(vcs2_t x, vis2_t m)
   return (fptr(x, m));
 }
 
-double complex
-MTH_DISPATCH_FUNC(__fz_tan_1)(double complex x)
+double _Complex
+MTH_DISPATCH_FUNC(__fz_tan_1)(double _Complex x)
 {
-  double complex (*fptr)(double complex);
+  double _Complex (*fptr)(double _Complex);
   _MTH_I_INIT();
   _MTH_I_STATS_INC(func_tan,sv_zs,frp_f);
-  fptr = (double complex(*)(double complex))MTH_DISPATCH_TBL[func_tan][sv_zs][frp_f];
+  fptr = (double _Complex(*)(double _Complex))MTH_DISPATCH_TBL[func_tan][sv_zs][frp_f];
   return (fptr(x));
 }
 
-double complex
-MTH_DISPATCH_FUNC(__rz_tan_1)(double complex x)
+double _Complex
+MTH_DISPATCH_FUNC(__rz_tan_1)(double _Complex x)
 {
-  double complex (*fptr)(double complex);
+  double _Complex (*fptr)(double _Complex);
   _MTH_I_INIT();
   _MTH_I_STATS_INC(func_tan,sv_zs,frp_r);
-  fptr = (double complex(*)(double complex))MTH_DISPATCH_TBL[func_tan][sv_zs][frp_r];
+  fptr = (double _Complex(*)(double _Complex))MTH_DISPATCH_TBL[func_tan][sv_zs][frp_r];
   return (fptr(x));
 }
 
-double complex
-MTH_DISPATCH_FUNC(__pz_tan_1)(double complex x)
+double _Complex
+MTH_DISPATCH_FUNC(__pz_tan_1)(double _Complex x)
 {
-  double complex (*fptr)(double complex);
+  double _Complex (*fptr)(double _Complex);
   _MTH_I_INIT();
   _MTH_I_STATS_INC(func_tan,sv_zs,frp_p);
-  fptr = (double complex(*)(double complex))MTH_DISPATCH_TBL[func_tan][sv_zs][frp_p];
+  fptr = (double _Complex(*)(double _Complex))MTH_DISPATCH_TBL[func_tan][sv_zs][frp_p];
   return (fptr(x));
 }
 
-float complex
-MTH_DISPATCH_FUNC(__fc_cosh_1)(float complex x)
+float _Complex
+MTH_DISPATCH_FUNC(__fc_cosh_1)(float _Complex x)
 {
-  float complex (*fptr)(float complex);
+  float _Complex (*fptr)(float _Complex);
   _MTH_I_INIT();
   _MTH_I_STATS_INC(func_cosh,sv_cs,frp_f);
-  fptr = (float complex(*)(float complex))MTH_DISPATCH_TBL[func_cosh][sv_cs][frp_f];
+  fptr = (float _Complex(*)(float _Complex))MTH_DISPATCH_TBL[func_cosh][sv_cs][frp_f];
   return (fptr(x));
 }
 
-float complex
-MTH_DISPATCH_FUNC(__rc_cosh_1)(float complex x)
+float _Complex
+MTH_DISPATCH_FUNC(__rc_cosh_1)(float _Complex x)
 {
-  float complex (*fptr)(float complex);
+  float _Complex (*fptr)(float _Complex);
   _MTH_I_INIT();
   _MTH_I_STATS_INC(func_cosh,sv_cs,frp_r);
-  fptr = (float complex(*)(float complex))MTH_DISPATCH_TBL[func_cosh][sv_cs][frp_r];
+  fptr = (float _Complex(*)(float _Complex))MTH_DISPATCH_TBL[func_cosh][sv_cs][frp_r];
   return (fptr(x));
 }
 
-float complex
-MTH_DISPATCH_FUNC(__pc_cosh_1)(float complex x)
+float _Complex
+MTH_DISPATCH_FUNC(__pc_cosh_1)(float _Complex x)
 {
-  float complex (*fptr)(float complex);
+  float _Complex (*fptr)(float _Complex);
   _MTH_I_INIT();
   _MTH_I_STATS_INC(func_cosh,sv_cs,frp_p);
-  fptr = (float complex(*)(float complex))MTH_DISPATCH_TBL[func_cosh][sv_cs][frp_p];
+  fptr = (float _Complex(*)(float _Complex))MTH_DISPATCH_TBL[func_cosh][sv_cs][frp_p];
   return (fptr(x));
 }
 
@@ -4526,63 +5076,63 @@ MTH_DISPATCH_FUNC(__pc_cosh_2m)(vcs2_t x, vis2_t m)
   return (fptr(x, m));
 }
 
-double complex
-MTH_DISPATCH_FUNC(__fz_cosh_1)(double complex x)
+double _Complex
+MTH_DISPATCH_FUNC(__fz_cosh_1)(double _Complex x)
 {
-  double complex (*fptr)(double complex);
+  double _Complex (*fptr)(double _Complex);
   _MTH_I_INIT();
   _MTH_I_STATS_INC(func_cosh,sv_zs,frp_f);
-  fptr = (double complex(*)(double complex))MTH_DISPATCH_TBL[func_cosh][sv_zs][frp_f];
+  fptr = (double _Complex(*)(double _Complex))MTH_DISPATCH_TBL[func_cosh][sv_zs][frp_f];
   return (fptr(x));
 }
 
-double complex
-MTH_DISPATCH_FUNC(__rz_cosh_1)(double complex x)
+double _Complex
+MTH_DISPATCH_FUNC(__rz_cosh_1)(double _Complex x)
 {
-  double complex (*fptr)(double complex);
+  double _Complex (*fptr)(double _Complex);
   _MTH_I_INIT();
   _MTH_I_STATS_INC(func_cosh,sv_zs,frp_r);
-  fptr = (double complex(*)(double complex))MTH_DISPATCH_TBL[func_cosh][sv_zs][frp_r];
+  fptr = (double _Complex(*)(double _Complex))MTH_DISPATCH_TBL[func_cosh][sv_zs][frp_r];
   return (fptr(x));
 }
 
-double complex
-MTH_DISPATCH_FUNC(__pz_cosh_1)(double complex x)
+double _Complex
+MTH_DISPATCH_FUNC(__pz_cosh_1)(double _Complex x)
 {
-  double complex (*fptr)(double complex);
+  double _Complex (*fptr)(double _Complex);
   _MTH_I_INIT();
   _MTH_I_STATS_INC(func_cosh,sv_zs,frp_p);
-  fptr = (double complex(*)(double complex))MTH_DISPATCH_TBL[func_cosh][sv_zs][frp_p];
+  fptr = (double _Complex(*)(double _Complex))MTH_DISPATCH_TBL[func_cosh][sv_zs][frp_p];
   return (fptr(x));
 }
 
-float complex
-MTH_DISPATCH_FUNC(__fc_sinh_1)(float complex x)
+float _Complex
+MTH_DISPATCH_FUNC(__fc_sinh_1)(float _Complex x)
 {
-  float complex (*fptr)(float complex);
+  float _Complex (*fptr)(float _Complex);
   _MTH_I_INIT();
   _MTH_I_STATS_INC(func_sinh,sv_cs,frp_f);
-  fptr = (float complex(*)(float complex))MTH_DISPATCH_TBL[func_sinh][sv_cs][frp_f];
+  fptr = (float _Complex(*)(float _Complex))MTH_DISPATCH_TBL[func_sinh][sv_cs][frp_f];
   return (fptr(x));
 }
 
-float complex
-MTH_DISPATCH_FUNC(__rc_sinh_1)(float complex x)
+float _Complex
+MTH_DISPATCH_FUNC(__rc_sinh_1)(float _Complex x)
 {
-  float complex (*fptr)(float complex);
+  float _Complex (*fptr)(float _Complex);
   _MTH_I_INIT();
   _MTH_I_STATS_INC(func_sinh,sv_cs,frp_r);
-  fptr = (float complex(*)(float complex))MTH_DISPATCH_TBL[func_sinh][sv_cs][frp_r];
+  fptr = (float _Complex(*)(float _Complex))MTH_DISPATCH_TBL[func_sinh][sv_cs][frp_r];
   return (fptr(x));
 }
 
-float complex
-MTH_DISPATCH_FUNC(__pc_sinh_1)(float complex x)
+float _Complex
+MTH_DISPATCH_FUNC(__pc_sinh_1)(float _Complex x)
 {
-  float complex (*fptr)(float complex);
+  float _Complex (*fptr)(float _Complex);
   _MTH_I_INIT();
   _MTH_I_STATS_INC(func_sinh,sv_cs,frp_p);
-  fptr = (float complex(*)(float complex))MTH_DISPATCH_TBL[func_sinh][sv_cs][frp_p];
+  fptr = (float _Complex(*)(float _Complex))MTH_DISPATCH_TBL[func_sinh][sv_cs][frp_p];
   return (fptr(x));
 }
 
@@ -4646,63 +5196,63 @@ MTH_DISPATCH_FUNC(__pc_sinh_2m)(vcs2_t x, vis2_t m)
   return (fptr(x, m));
 }
 
-double complex
-MTH_DISPATCH_FUNC(__fz_sinh_1)(double complex x)
+double _Complex
+MTH_DISPATCH_FUNC(__fz_sinh_1)(double _Complex x)
 {
-  double complex (*fptr)(double complex);
+  double _Complex (*fptr)(double _Complex);
   _MTH_I_INIT();
   _MTH_I_STATS_INC(func_sinh,sv_zs,frp_f);
-  fptr = (double complex(*)(double complex))MTH_DISPATCH_TBL[func_sinh][sv_zs][frp_f];
+  fptr = (double _Complex(*)(double _Complex))MTH_DISPATCH_TBL[func_sinh][sv_zs][frp_f];
   return (fptr(x));
 }
 
-double complex
-MTH_DISPATCH_FUNC(__rz_sinh_1)(double complex x)
+double _Complex
+MTH_DISPATCH_FUNC(__rz_sinh_1)(double _Complex x)
 {
-  double complex (*fptr)(double complex);
+  double _Complex (*fptr)(double _Complex);
   _MTH_I_INIT();
   _MTH_I_STATS_INC(func_sinh,sv_zs,frp_r);
-  fptr = (double complex(*)(double complex))MTH_DISPATCH_TBL[func_sinh][sv_zs][frp_r];
+  fptr = (double _Complex(*)(double _Complex))MTH_DISPATCH_TBL[func_sinh][sv_zs][frp_r];
   return (fptr(x));
 }
 
-double complex
-MTH_DISPATCH_FUNC(__pz_sinh_1)(double complex x)
+double _Complex
+MTH_DISPATCH_FUNC(__pz_sinh_1)(double _Complex x)
 {
-  double complex (*fptr)(double complex);
+  double _Complex (*fptr)(double _Complex);
   _MTH_I_INIT();
   _MTH_I_STATS_INC(func_sinh,sv_zs,frp_p);
-  fptr = (double complex(*)(double complex))MTH_DISPATCH_TBL[func_sinh][sv_zs][frp_p];
+  fptr = (double _Complex(*)(double _Complex))MTH_DISPATCH_TBL[func_sinh][sv_zs][frp_p];
   return (fptr(x));
 }
 
-float complex
-MTH_DISPATCH_FUNC(__fc_tanh_1)(float complex x)
+float _Complex
+MTH_DISPATCH_FUNC(__fc_tanh_1)(float _Complex x)
 {
-  float complex (*fptr)(float complex);
+  float _Complex (*fptr)(float _Complex);
   _MTH_I_INIT();
   _MTH_I_STATS_INC(func_tanh,sv_cs,frp_f);
-  fptr = (float complex(*)(float complex))MTH_DISPATCH_TBL[func_tanh][sv_cs][frp_f];
+  fptr = (float _Complex(*)(float _Complex))MTH_DISPATCH_TBL[func_tanh][sv_cs][frp_f];
   return (fptr(x));
 }
 
-float complex
-MTH_DISPATCH_FUNC(__rc_tanh_1)(float complex x)
+float _Complex
+MTH_DISPATCH_FUNC(__rc_tanh_1)(float _Complex x)
 {
-  float complex (*fptr)(float complex);
+  float _Complex (*fptr)(float _Complex);
   _MTH_I_INIT();
   _MTH_I_STATS_INC(func_tanh,sv_cs,frp_r);
-  fptr = (float complex(*)(float complex))MTH_DISPATCH_TBL[func_tanh][sv_cs][frp_r];
+  fptr = (float _Complex(*)(float _Complex))MTH_DISPATCH_TBL[func_tanh][sv_cs][frp_r];
   return (fptr(x));
 }
 
-float complex
-MTH_DISPATCH_FUNC(__pc_tanh_1)(float complex x)
+float _Complex
+MTH_DISPATCH_FUNC(__pc_tanh_1)(float _Complex x)
 {
-  float complex (*fptr)(float complex);
+  float _Complex (*fptr)(float _Complex);
   _MTH_I_INIT();
   _MTH_I_STATS_INC(func_tanh,sv_cs,frp_p);
-  fptr = (float complex(*)(float complex))MTH_DISPATCH_TBL[func_tanh][sv_cs][frp_p];
+  fptr = (float _Complex(*)(float _Complex))MTH_DISPATCH_TBL[func_tanh][sv_cs][frp_p];
   return (fptr(x));
 }
 
@@ -4766,63 +5316,63 @@ MTH_DISPATCH_FUNC(__pc_tanh_2m)(vcs2_t x, vis2_t m)
   return (fptr(x, m));
 }
 
-double complex
-MTH_DISPATCH_FUNC(__fz_tanh_1)(double complex x)
+double _Complex
+MTH_DISPATCH_FUNC(__fz_tanh_1)(double _Complex x)
 {
-  double complex (*fptr)(double complex);
+  double _Complex (*fptr)(double _Complex);
   _MTH_I_INIT();
   _MTH_I_STATS_INC(func_tanh,sv_zs,frp_f);
-  fptr = (double complex(*)(double complex))MTH_DISPATCH_TBL[func_tanh][sv_zs][frp_f];
+  fptr = (double _Complex(*)(double _Complex))MTH_DISPATCH_TBL[func_tanh][sv_zs][frp_f];
   return (fptr(x));
 }
 
-double complex
-MTH_DISPATCH_FUNC(__rz_tanh_1)(double complex x)
+double _Complex
+MTH_DISPATCH_FUNC(__rz_tanh_1)(double _Complex x)
 {
-  double complex (*fptr)(double complex);
+  double _Complex (*fptr)(double _Complex);
   _MTH_I_INIT();
   _MTH_I_STATS_INC(func_tanh,sv_zs,frp_r);
-  fptr = (double complex(*)(double complex))MTH_DISPATCH_TBL[func_tanh][sv_zs][frp_r];
+  fptr = (double _Complex(*)(double _Complex))MTH_DISPATCH_TBL[func_tanh][sv_zs][frp_r];
   return (fptr(x));
 }
 
-double complex
-MTH_DISPATCH_FUNC(__pz_tanh_1)(double complex x)
+double _Complex
+MTH_DISPATCH_FUNC(__pz_tanh_1)(double _Complex x)
 {
-  double complex (*fptr)(double complex);
+  double _Complex (*fptr)(double _Complex);
   _MTH_I_INIT();
   _MTH_I_STATS_INC(func_tanh,sv_zs,frp_p);
-  fptr = (double complex(*)(double complex))MTH_DISPATCH_TBL[func_tanh][sv_zs][frp_p];
+  fptr = (double _Complex(*)(double _Complex))MTH_DISPATCH_TBL[func_tanh][sv_zs][frp_p];
   return (fptr(x));
 }
 
-float complex
-MTH_DISPATCH_FUNC(__fc_exp_1)(float complex x)
+float _Complex
+MTH_DISPATCH_FUNC(__fc_exp_1)(float _Complex x)
 {
-  float complex (*fptr)(float complex);
+  float _Complex (*fptr)(float _Complex);
   _MTH_I_INIT();
   _MTH_I_STATS_INC(func_exp,sv_cs,frp_f);
-  fptr = (float complex(*)(float complex))MTH_DISPATCH_TBL[func_exp][sv_cs][frp_f];
+  fptr = (float _Complex(*)(float _Complex))MTH_DISPATCH_TBL[func_exp][sv_cs][frp_f];
   return (fptr(x));
 }
 
-float complex
-MTH_DISPATCH_FUNC(__rc_exp_1)(float complex x)
+float _Complex
+MTH_DISPATCH_FUNC(__rc_exp_1)(float _Complex x)
 {
-  float complex (*fptr)(float complex);
+  float _Complex (*fptr)(float _Complex);
   _MTH_I_INIT();
   _MTH_I_STATS_INC(func_exp,sv_cs,frp_r);
-  fptr = (float complex(*)(float complex))MTH_DISPATCH_TBL[func_exp][sv_cs][frp_r];
+  fptr = (float _Complex(*)(float _Complex))MTH_DISPATCH_TBL[func_exp][sv_cs][frp_r];
   return (fptr(x));
 }
 
-float complex
-MTH_DISPATCH_FUNC(__pc_exp_1)(float complex x)
+float _Complex
+MTH_DISPATCH_FUNC(__pc_exp_1)(float _Complex x)
 {
-  float complex (*fptr)(float complex);
+  float _Complex (*fptr)(float _Complex);
   _MTH_I_INIT();
   _MTH_I_STATS_INC(func_exp,sv_cs,frp_p);
-  fptr = (float complex(*)(float complex))MTH_DISPATCH_TBL[func_exp][sv_cs][frp_p];
+  fptr = (float _Complex(*)(float _Complex))MTH_DISPATCH_TBL[func_exp][sv_cs][frp_p];
   return (fptr(x));
 }
 
@@ -4886,63 +5436,63 @@ MTH_DISPATCH_FUNC(__pc_exp_2m)(vcs2_t x, vis2_t m)
   return (fptr(x, m));
 }
 
-double complex
-MTH_DISPATCH_FUNC(__fz_exp_1)(double complex x)
+double _Complex
+MTH_DISPATCH_FUNC(__fz_exp_1)(double _Complex x)
 {
-  double complex (*fptr)(double complex);
+  double _Complex (*fptr)(double _Complex);
   _MTH_I_INIT();
   _MTH_I_STATS_INC(func_exp,sv_zs,frp_f);
-  fptr = (double complex(*)(double complex))MTH_DISPATCH_TBL[func_exp][sv_zs][frp_f];
+  fptr = (double _Complex(*)(double _Complex))MTH_DISPATCH_TBL[func_exp][sv_zs][frp_f];
   return (fptr(x));
 }
 
-double complex
-MTH_DISPATCH_FUNC(__rz_exp_1)(double complex x)
+double _Complex
+MTH_DISPATCH_FUNC(__rz_exp_1)(double _Complex x)
 {
-  double complex (*fptr)(double complex);
+  double _Complex (*fptr)(double _Complex);
   _MTH_I_INIT();
   _MTH_I_STATS_INC(func_exp,sv_zs,frp_r);
-  fptr = (double complex(*)(double complex))MTH_DISPATCH_TBL[func_exp][sv_zs][frp_r];
+  fptr = (double _Complex(*)(double _Complex))MTH_DISPATCH_TBL[func_exp][sv_zs][frp_r];
   return (fptr(x));
 }
 
-double complex
-MTH_DISPATCH_FUNC(__pz_exp_1)(double complex x)
+double _Complex
+MTH_DISPATCH_FUNC(__pz_exp_1)(double _Complex x)
 {
-  double complex (*fptr)(double complex);
+  double _Complex (*fptr)(double _Complex);
   _MTH_I_INIT();
   _MTH_I_STATS_INC(func_exp,sv_zs,frp_p);
-  fptr = (double complex(*)(double complex))MTH_DISPATCH_TBL[func_exp][sv_zs][frp_p];
+  fptr = (double _Complex(*)(double _Complex))MTH_DISPATCH_TBL[func_exp][sv_zs][frp_p];
   return (fptr(x));
 }
 
-float complex
-MTH_DISPATCH_FUNC(__fc_log_1)(float complex x)
+float _Complex
+MTH_DISPATCH_FUNC(__fc_log_1)(float _Complex x)
 {
-  float complex (*fptr)(float complex);
+  float _Complex (*fptr)(float _Complex);
   _MTH_I_INIT();
   _MTH_I_STATS_INC(func_log,sv_cs,frp_f);
-  fptr = (float complex(*)(float complex))MTH_DISPATCH_TBL[func_log][sv_cs][frp_f];
+  fptr = (float _Complex(*)(float _Complex))MTH_DISPATCH_TBL[func_log][sv_cs][frp_f];
   return (fptr(x));
 }
 
-float complex
-MTH_DISPATCH_FUNC(__rc_log_1)(float complex x)
+float _Complex
+MTH_DISPATCH_FUNC(__rc_log_1)(float _Complex x)
 {
-  float complex (*fptr)(float complex);
+  float _Complex (*fptr)(float _Complex);
   _MTH_I_INIT();
   _MTH_I_STATS_INC(func_log,sv_cs,frp_r);
-  fptr = (float complex(*)(float complex))MTH_DISPATCH_TBL[func_log][sv_cs][frp_r];
+  fptr = (float _Complex(*)(float _Complex))MTH_DISPATCH_TBL[func_log][sv_cs][frp_r];
   return (fptr(x));
 }
 
-float complex
-MTH_DISPATCH_FUNC(__pc_log_1)(float complex x)
+float _Complex
+MTH_DISPATCH_FUNC(__pc_log_1)(float _Complex x)
 {
-  float complex (*fptr)(float complex);
+  float _Complex (*fptr)(float _Complex);
   _MTH_I_INIT();
   _MTH_I_STATS_INC(func_log,sv_cs,frp_p);
-  fptr = (float complex(*)(float complex))MTH_DISPATCH_TBL[func_log][sv_cs][frp_p];
+  fptr = (float _Complex(*)(float _Complex))MTH_DISPATCH_TBL[func_log][sv_cs][frp_p];
   return (fptr(x));
 }
 
@@ -5006,63 +5556,63 @@ MTH_DISPATCH_FUNC(__pc_log_2m)(vcs2_t x, vis2_t m)
   return (fptr(x, m));
 }
 
-double complex
-MTH_DISPATCH_FUNC(__fz_log_1)(double complex x)
+double _Complex
+MTH_DISPATCH_FUNC(__fz_log_1)(double _Complex x)
 {
-  double complex (*fptr)(double complex);
+  double _Complex (*fptr)(double _Complex);
   _MTH_I_INIT();
   _MTH_I_STATS_INC(func_log,sv_zs,frp_f);
-  fptr = (double complex(*)(double complex))MTH_DISPATCH_TBL[func_log][sv_zs][frp_f];
+  fptr = (double _Complex(*)(double _Complex))MTH_DISPATCH_TBL[func_log][sv_zs][frp_f];
   return (fptr(x));
 }
 
-double complex
-MTH_DISPATCH_FUNC(__rz_log_1)(double complex x)
+double _Complex
+MTH_DISPATCH_FUNC(__rz_log_1)(double _Complex x)
 {
-  double complex (*fptr)(double complex);
+  double _Complex (*fptr)(double _Complex);
   _MTH_I_INIT();
   _MTH_I_STATS_INC(func_log,sv_zs,frp_r);
-  fptr = (double complex(*)(double complex))MTH_DISPATCH_TBL[func_log][sv_zs][frp_r];
+  fptr = (double _Complex(*)(double _Complex))MTH_DISPATCH_TBL[func_log][sv_zs][frp_r];
   return (fptr(x));
 }
 
-double complex
-MTH_DISPATCH_FUNC(__pz_log_1)(double complex x)
+double _Complex
+MTH_DISPATCH_FUNC(__pz_log_1)(double _Complex x)
 {
-  double complex (*fptr)(double complex);
+  double _Complex (*fptr)(double _Complex);
   _MTH_I_INIT();
   _MTH_I_STATS_INC(func_log,sv_zs,frp_p);
-  fptr = (double complex(*)(double complex))MTH_DISPATCH_TBL[func_log][sv_zs][frp_p];
+  fptr = (double _Complex(*)(double _Complex))MTH_DISPATCH_TBL[func_log][sv_zs][frp_p];
   return (fptr(x));
 }
 
-float complex
-MTH_DISPATCH_FUNC(__fc_log10_1)(float complex x)
+float _Complex
+MTH_DISPATCH_FUNC(__fc_log10_1)(float _Complex x)
 {
-  float complex (*fptr)(float complex);
+  float _Complex (*fptr)(float _Complex);
   _MTH_I_INIT();
   _MTH_I_STATS_INC(func_log10,sv_cs,frp_f);
-  fptr = (float complex(*)(float complex))MTH_DISPATCH_TBL[func_log10][sv_cs][frp_f];
+  fptr = (float _Complex(*)(float _Complex))MTH_DISPATCH_TBL[func_log10][sv_cs][frp_f];
   return (fptr(x));
 }
 
-float complex
-MTH_DISPATCH_FUNC(__rc_log10_1)(float complex x)
+float _Complex
+MTH_DISPATCH_FUNC(__rc_log10_1)(float _Complex x)
 {
-  float complex (*fptr)(float complex);
+  float _Complex (*fptr)(float _Complex);
   _MTH_I_INIT();
   _MTH_I_STATS_INC(func_log10,sv_cs,frp_r);
-  fptr = (float complex(*)(float complex))MTH_DISPATCH_TBL[func_log10][sv_cs][frp_r];
+  fptr = (float _Complex(*)(float _Complex))MTH_DISPATCH_TBL[func_log10][sv_cs][frp_r];
   return (fptr(x));
 }
 
-float complex
-MTH_DISPATCH_FUNC(__pc_log10_1)(float complex x)
+float _Complex
+MTH_DISPATCH_FUNC(__pc_log10_1)(float _Complex x)
 {
-  float complex (*fptr)(float complex);
+  float _Complex (*fptr)(float _Complex);
   _MTH_I_INIT();
   _MTH_I_STATS_INC(func_log10,sv_cs,frp_p);
-  fptr = (float complex(*)(float complex))MTH_DISPATCH_TBL[func_log10][sv_cs][frp_p];
+  fptr = (float _Complex(*)(float _Complex))MTH_DISPATCH_TBL[func_log10][sv_cs][frp_p];
   return (fptr(x));
 }
 
@@ -5126,63 +5676,63 @@ MTH_DISPATCH_FUNC(__pc_log10_2m)(vcs2_t x, vis2_t m)
   return (fptr(x, m));
 }
 
-double complex
-MTH_DISPATCH_FUNC(__fz_log10_1)(double complex x)
+double _Complex
+MTH_DISPATCH_FUNC(__fz_log10_1)(double _Complex x)
 {
-  double complex (*fptr)(double complex);
+  double _Complex (*fptr)(double _Complex);
   _MTH_I_INIT();
   _MTH_I_STATS_INC(func_log10,sv_zs,frp_f);
-  fptr = (double complex(*)(double complex))MTH_DISPATCH_TBL[func_log10][sv_zs][frp_f];
+  fptr = (double _Complex(*)(double _Complex))MTH_DISPATCH_TBL[func_log10][sv_zs][frp_f];
   return (fptr(x));
 }
 
-double complex
-MTH_DISPATCH_FUNC(__rz_log10_1)(double complex x)
+double _Complex
+MTH_DISPATCH_FUNC(__rz_log10_1)(double _Complex x)
 {
-  double complex (*fptr)(double complex);
+  double _Complex (*fptr)(double _Complex);
   _MTH_I_INIT();
   _MTH_I_STATS_INC(func_log10,sv_zs,frp_r);
-  fptr = (double complex(*)(double complex))MTH_DISPATCH_TBL[func_log10][sv_zs][frp_r];
+  fptr = (double _Complex(*)(double _Complex))MTH_DISPATCH_TBL[func_log10][sv_zs][frp_r];
   return (fptr(x));
 }
 
-double complex
-MTH_DISPATCH_FUNC(__pz_log10_1)(double complex x)
+double _Complex
+MTH_DISPATCH_FUNC(__pz_log10_1)(double _Complex x)
 {
-  double complex (*fptr)(double complex);
+  double _Complex (*fptr)(double _Complex);
   _MTH_I_INIT();
   _MTH_I_STATS_INC(func_log10,sv_zs,frp_p);
-  fptr = (double complex(*)(double complex))MTH_DISPATCH_TBL[func_log10][sv_zs][frp_p];
+  fptr = (double _Complex(*)(double _Complex))MTH_DISPATCH_TBL[func_log10][sv_zs][frp_p];
   return (fptr(x));
 }
 
-float complex
-MTH_DISPATCH_FUNC(__fc_pow_1)(float complex x, float complex y)
+float _Complex
+MTH_DISPATCH_FUNC(__fc_pow_1)(float _Complex x, float _Complex y)
 {
-  float complex (*fptr)(float complex, float complex);
+  float _Complex (*fptr)(float _Complex, float _Complex);
   _MTH_I_INIT();
   _MTH_I_STATS_INC(func_pow,sv_cs,frp_f);
-  fptr = (float complex(*)(float complex, float complex))MTH_DISPATCH_TBL[func_pow][sv_cs][frp_f];
+  fptr = (float _Complex(*)(float _Complex, float _Complex))MTH_DISPATCH_TBL[func_pow][sv_cs][frp_f];
   return (fptr(x, y));
 }
 
-float complex
-MTH_DISPATCH_FUNC(__rc_pow_1)(float complex x, float complex y)
+float _Complex
+MTH_DISPATCH_FUNC(__rc_pow_1)(float _Complex x, float _Complex y)
 {
-  float complex (*fptr)(float complex, float complex);
+  float _Complex (*fptr)(float _Complex, float _Complex);
   _MTH_I_INIT();
   _MTH_I_STATS_INC(func_pow,sv_cs,frp_r);
-  fptr = (float complex(*)(float complex, float complex))MTH_DISPATCH_TBL[func_pow][sv_cs][frp_r];
+  fptr = (float _Complex(*)(float _Complex, float _Complex))MTH_DISPATCH_TBL[func_pow][sv_cs][frp_r];
   return (fptr(x, y));
 }
 
-float complex
-MTH_DISPATCH_FUNC(__pc_pow_1)(float complex x, float complex y)
+float _Complex
+MTH_DISPATCH_FUNC(__pc_pow_1)(float _Complex x, float _Complex y)
 {
-  float complex (*fptr)(float complex, float complex);
+  float _Complex (*fptr)(float _Complex, float _Complex);
   _MTH_I_INIT();
   _MTH_I_STATS_INC(func_pow,sv_cs,frp_p);
-  fptr = (float complex(*)(float complex, float complex))MTH_DISPATCH_TBL[func_pow][sv_cs][frp_p];
+  fptr = (float _Complex(*)(float _Complex, float _Complex))MTH_DISPATCH_TBL[func_pow][sv_cs][frp_p];
   return (fptr(x, y));
 }
 
@@ -5246,153 +5796,153 @@ MTH_DISPATCH_FUNC(__pc_pow_2m)(vcs2_t x, vcs2_t y, vis2_t m)
   return (fptr(x, y, m));
 }
 
-double complex
-MTH_DISPATCH_FUNC(__fz_pow_1)(double complex x, double complex y)
+double _Complex
+MTH_DISPATCH_FUNC(__fz_pow_1)(double _Complex x, double _Complex y)
 {
-  double complex (*fptr)(double complex, double complex);
+  double _Complex (*fptr)(double _Complex, double _Complex);
   _MTH_I_INIT();
   _MTH_I_STATS_INC(func_pow,sv_zs,frp_f);
-  fptr = (double complex(*)(double complex, double complex))MTH_DISPATCH_TBL[func_pow][sv_zs][frp_f];
+  fptr = (double _Complex(*)(double _Complex, double _Complex))MTH_DISPATCH_TBL[func_pow][sv_zs][frp_f];
   return (fptr(x, y));
 }
 
-double complex
-MTH_DISPATCH_FUNC(__rz_pow_1)(double complex x, double complex y)
+double _Complex
+MTH_DISPATCH_FUNC(__rz_pow_1)(double _Complex x, double _Complex y)
 {
-  double complex (*fptr)(double complex, double complex);
+  double _Complex (*fptr)(double _Complex, double _Complex);
   _MTH_I_INIT();
   _MTH_I_STATS_INC(func_pow,sv_zs,frp_r);
-  fptr = (double complex(*)(double complex, double complex))MTH_DISPATCH_TBL[func_pow][sv_zs][frp_r];
+  fptr = (double _Complex(*)(double _Complex, double _Complex))MTH_DISPATCH_TBL[func_pow][sv_zs][frp_r];
   return (fptr(x, y));
 }
 
-double complex
-MTH_DISPATCH_FUNC(__pz_pow_1)(double complex x, double complex y)
+double _Complex
+MTH_DISPATCH_FUNC(__pz_pow_1)(double _Complex x, double _Complex y)
 {
-  double complex (*fptr)(double complex, double complex);
+  double _Complex (*fptr)(double _Complex, double _Complex);
   _MTH_I_INIT();
   _MTH_I_STATS_INC(func_pow,sv_zs,frp_p);
-  fptr = (double complex(*)(double complex, double complex))MTH_DISPATCH_TBL[func_pow][sv_zs][frp_p];
+  fptr = (double _Complex(*)(double _Complex, double _Complex))MTH_DISPATCH_TBL[func_pow][sv_zs][frp_p];
   return (fptr(x, y));
 }
 
-float complex
-MTH_DISPATCH_FUNC(__fc_powi_1)(float complex x, int iy)
+float _Complex
+MTH_DISPATCH_FUNC(__fc_powi_1)(float _Complex x, int iy)
 {
-  float complex (*fptr)(float complex, int);
+  float _Complex (*fptr)(float _Complex, int);
   _MTH_I_INIT();
   _MTH_I_STATS_INC(func_powi,sv_cs,frp_f);
-  fptr = (float complex(*)(float complex, int))MTH_DISPATCH_TBL[func_powi][sv_cs][frp_f];
+  fptr = (float _Complex(*)(float _Complex, int))MTH_DISPATCH_TBL[func_powi][sv_cs][frp_f];
   return (fptr(x, iy));
 }
 
-float complex
-MTH_DISPATCH_FUNC(__rc_powi_1)(float complex x, int iy)
+float _Complex
+MTH_DISPATCH_FUNC(__rc_powi_1)(float _Complex x, int iy)
 {
-  float complex (*fptr)(float complex, int);
+  float _Complex (*fptr)(float _Complex, int);
   _MTH_I_INIT();
   _MTH_I_STATS_INC(func_powi,sv_cs,frp_r);
-  fptr = (float complex(*)(float complex, int))MTH_DISPATCH_TBL[func_powi][sv_cs][frp_r];
+  fptr = (float _Complex(*)(float _Complex, int))MTH_DISPATCH_TBL[func_powi][sv_cs][frp_r];
   return (fptr(x, iy));
 }
 
-float complex
-MTH_DISPATCH_FUNC(__pc_powi_1)(float complex x, int iy)
+float _Complex
+MTH_DISPATCH_FUNC(__pc_powi_1)(float _Complex x, int iy)
 {
-  float complex (*fptr)(float complex, int);
+  float _Complex (*fptr)(float _Complex, int);
   _MTH_I_INIT();
   _MTH_I_STATS_INC(func_powi,sv_cs,frp_p);
-  fptr = (float complex(*)(float complex, int))MTH_DISPATCH_TBL[func_powi][sv_cs][frp_p];
+  fptr = (float _Complex(*)(float _Complex, int))MTH_DISPATCH_TBL[func_powi][sv_cs][frp_p];
   return (fptr(x, iy));
 }
 
-float complex
-MTH_DISPATCH_FUNC(__fc_powk_1)(float complex x, long long iy)
+float _Complex
+MTH_DISPATCH_FUNC(__fc_powk_1)(float _Complex x, long long iy)
 {
-  float complex (*fptr)(float complex, long long);
+  float _Complex (*fptr)(float _Complex, long long);
   _MTH_I_INIT();
   _MTH_I_STATS_INC(func_powk,sv_cs,frp_f);
-  fptr = (float complex(*)(float complex, long long))MTH_DISPATCH_TBL[func_powk][sv_cs][frp_f];
+  fptr = (float _Complex(*)(float _Complex, long long))MTH_DISPATCH_TBL[func_powk][sv_cs][frp_f];
   return (fptr(x, iy));
 }
 
-float complex
-MTH_DISPATCH_FUNC(__rc_powk_1)(float complex x, long long iy)
+float _Complex
+MTH_DISPATCH_FUNC(__rc_powk_1)(float _Complex x, long long iy)
 {
-  float complex (*fptr)(float complex, long long);
+  float _Complex (*fptr)(float _Complex, long long);
   _MTH_I_INIT();
   _MTH_I_STATS_INC(func_powk,sv_cs,frp_r);
-  fptr = (float complex(*)(float complex, long long))MTH_DISPATCH_TBL[func_powk][sv_cs][frp_r];
+  fptr = (float _Complex(*)(float _Complex, long long))MTH_DISPATCH_TBL[func_powk][sv_cs][frp_r];
   return (fptr(x, iy));
 }
 
-float complex
-MTH_DISPATCH_FUNC(__pc_powk_1)(float complex x, long long iy)
+float _Complex
+MTH_DISPATCH_FUNC(__pc_powk_1)(float _Complex x, long long iy)
 {
-  float complex (*fptr)(float complex, long long);
+  float _Complex (*fptr)(float _Complex, long long);
   _MTH_I_INIT();
   _MTH_I_STATS_INC(func_powk,sv_cs,frp_p);
-  fptr = (float complex(*)(float complex, long long))MTH_DISPATCH_TBL[func_powk][sv_cs][frp_p];
+  fptr = (float _Complex(*)(float _Complex, long long))MTH_DISPATCH_TBL[func_powk][sv_cs][frp_p];
   return (fptr(x, iy));
 }
 
-double complex
-MTH_DISPATCH_FUNC(__fz_powi_1)(double complex x, int iy)
+double _Complex
+MTH_DISPATCH_FUNC(__fz_powi_1)(double _Complex x, int iy)
 {
-  double complex (*fptr)(double complex, int);
+  double _Complex (*fptr)(double _Complex, int);
   _MTH_I_INIT();
   _MTH_I_STATS_INC(func_powi,sv_zs,frp_f);
-  fptr = (double complex(*)(double complex, int))MTH_DISPATCH_TBL[func_powi][sv_zs][frp_f];
+  fptr = (double _Complex(*)(double _Complex, int))MTH_DISPATCH_TBL[func_powi][sv_zs][frp_f];
   return (fptr(x, iy));
 }
 
-double complex
-MTH_DISPATCH_FUNC(__rz_powi_1)(double complex x, int iy)
+double _Complex
+MTH_DISPATCH_FUNC(__rz_powi_1)(double _Complex x, int iy)
 {
-  double complex (*fptr)(double complex, int);
+  double _Complex (*fptr)(double _Complex, int);
   _MTH_I_INIT();
   _MTH_I_STATS_INC(func_powi,sv_zs,frp_r);
-  fptr = (double complex(*)(double complex, int))MTH_DISPATCH_TBL[func_powi][sv_zs][frp_r];
+  fptr = (double _Complex(*)(double _Complex, int))MTH_DISPATCH_TBL[func_powi][sv_zs][frp_r];
   return (fptr(x, iy));
 }
 
-double complex
-MTH_DISPATCH_FUNC(__pz_powi_1)(double complex x, int iy)
+double _Complex
+MTH_DISPATCH_FUNC(__pz_powi_1)(double _Complex x, int iy)
 {
-  double complex (*fptr)(double complex, int);
+  double _Complex (*fptr)(double _Complex, int);
   _MTH_I_INIT();
   _MTH_I_STATS_INC(func_powi,sv_zs,frp_p);
-  fptr = (double complex(*)(double complex, int))MTH_DISPATCH_TBL[func_powi][sv_zs][frp_p];
+  fptr = (double _Complex(*)(double _Complex, int))MTH_DISPATCH_TBL[func_powi][sv_zs][frp_p];
   return (fptr(x, iy));
 }
 
-double complex
-MTH_DISPATCH_FUNC(__fz_powk_1)(double complex x, long long iy)
+double _Complex
+MTH_DISPATCH_FUNC(__fz_powk_1)(double _Complex x, long long iy)
 {
-  double complex (*fptr)(double complex, long long);
+  double _Complex (*fptr)(double _Complex, long long);
   _MTH_I_INIT();
   _MTH_I_STATS_INC(func_powk,sv_zs,frp_f);
-  fptr = (double complex(*)(double complex, long long))MTH_DISPATCH_TBL[func_powk][sv_zs][frp_f];
+  fptr = (double _Complex(*)(double _Complex, long long))MTH_DISPATCH_TBL[func_powk][sv_zs][frp_f];
   return (fptr(x, iy));
 }
 
-double complex
-MTH_DISPATCH_FUNC(__rz_powk_1)(double complex x, long long iy)
+double _Complex
+MTH_DISPATCH_FUNC(__rz_powk_1)(double _Complex x, long long iy)
 {
-  double complex (*fptr)(double complex, long long);
+  double _Complex (*fptr)(double _Complex, long long);
   _MTH_I_INIT();
   _MTH_I_STATS_INC(func_powk,sv_zs,frp_r);
-  fptr = (double complex(*)(double complex, long long))MTH_DISPATCH_TBL[func_powk][sv_zs][frp_r];
+  fptr = (double _Complex(*)(double _Complex, long long))MTH_DISPATCH_TBL[func_powk][sv_zs][frp_r];
   return (fptr(x, iy));
 }
 
-double complex
-MTH_DISPATCH_FUNC(__pz_powk_1)(double complex x, long long iy)
+double _Complex
+MTH_DISPATCH_FUNC(__pz_powk_1)(double _Complex x, long long iy)
 {
-  double complex (*fptr)(double complex, long long);
+  double _Complex (*fptr)(double _Complex, long long);
   _MTH_I_INIT();
   _MTH_I_STATS_INC(func_powk,sv_zs,frp_p);
-  fptr = (double complex(*)(double complex, long long))MTH_DISPATCH_TBL[func_powk][sv_zs][frp_p];
+  fptr = (double _Complex(*)(double _Complex, long long))MTH_DISPATCH_TBL[func_powk][sv_zs][frp_p];
   return (fptr(x, iy));
 }
 
@@ -5456,33 +6006,33 @@ MTH_DISPATCH_FUNC(__pd_div_2m)(vrd2_t x, vrd2_t y, vid2_t m)
   return (fptr(x, y, m));
 }
 
-float complex
-MTH_DISPATCH_FUNC(__fc_div_1)(float complex x, float complex y)
+float _Complex
+MTH_DISPATCH_FUNC(__fc_div_1)(float _Complex x, float _Complex y)
 {
-  float complex (*fptr)(float complex, float complex);
+  float _Complex (*fptr)(float _Complex, float _Complex);
   _MTH_I_INIT();
   _MTH_I_STATS_INC(func_div,sv_cs,frp_f);
-  fptr = (float complex(*)(float complex, float complex))MTH_DISPATCH_TBL[func_div][sv_cs][frp_f];
+  fptr = (float _Complex(*)(float _Complex, float _Complex))MTH_DISPATCH_TBL[func_div][sv_cs][frp_f];
   return (fptr(x, y));
 }
 
-float complex
-MTH_DISPATCH_FUNC(__rc_div_1)(float complex x, float complex y)
+float _Complex
+MTH_DISPATCH_FUNC(__rc_div_1)(float _Complex x, float _Complex y)
 {
-  float complex (*fptr)(float complex, float complex);
+  float _Complex (*fptr)(float _Complex, float _Complex);
   _MTH_I_INIT();
   _MTH_I_STATS_INC(func_div,sv_cs,frp_r);
-  fptr = (float complex(*)(float complex, float complex))MTH_DISPATCH_TBL[func_div][sv_cs][frp_r];
+  fptr = (float _Complex(*)(float _Complex, float _Complex))MTH_DISPATCH_TBL[func_div][sv_cs][frp_r];
   return (fptr(x, y));
 }
 
-float complex
-MTH_DISPATCH_FUNC(__pc_div_1)(float complex x, float complex y)
+float _Complex
+MTH_DISPATCH_FUNC(__pc_div_1)(float _Complex x, float _Complex y)
 {
-  float complex (*fptr)(float complex, float complex);
+  float _Complex (*fptr)(float _Complex, float _Complex);
   _MTH_I_INIT();
   _MTH_I_STATS_INC(func_div,sv_cs,frp_p);
-  fptr = (float complex(*)(float complex, float complex))MTH_DISPATCH_TBL[func_div][sv_cs][frp_p];
+  fptr = (float _Complex(*)(float _Complex, float _Complex))MTH_DISPATCH_TBL[func_div][sv_cs][frp_p];
   return (fptr(x, y));
 }
 
@@ -5546,33 +6096,33 @@ MTH_DISPATCH_FUNC(__pc_div_2m)(vcs2_t x, vcs2_t y, vis2_t m)
   return (fptr(x, y, m));
 }
 
-double complex
-MTH_DISPATCH_FUNC(__fz_div_1)(double complex x, double complex y)
+double _Complex
+MTH_DISPATCH_FUNC(__fz_div_1)(double _Complex x, double _Complex y)
 {
-  double complex (*fptr)(double complex, double complex);
+  double _Complex (*fptr)(double _Complex, double _Complex);
   _MTH_I_INIT();
   _MTH_I_STATS_INC(func_div,sv_zs,frp_f);
-  fptr = (double complex(*)(double complex, double complex))MTH_DISPATCH_TBL[func_div][sv_zs][frp_f];
+  fptr = (double _Complex(*)(double _Complex, double _Complex))MTH_DISPATCH_TBL[func_div][sv_zs][frp_f];
   return (fptr(x, y));
 }
 
-double complex
-MTH_DISPATCH_FUNC(__rz_div_1)(double complex x, double complex y)
+double _Complex
+MTH_DISPATCH_FUNC(__rz_div_1)(double _Complex x, double _Complex y)
 {
-  double complex (*fptr)(double complex, double complex);
+  double _Complex (*fptr)(double _Complex, double _Complex);
   _MTH_I_INIT();
   _MTH_I_STATS_INC(func_div,sv_zs,frp_r);
-  fptr = (double complex(*)(double complex, double complex))MTH_DISPATCH_TBL[func_div][sv_zs][frp_r];
+  fptr = (double _Complex(*)(double _Complex, double _Complex))MTH_DISPATCH_TBL[func_div][sv_zs][frp_r];
   return (fptr(x, y));
 }
 
-double complex
-MTH_DISPATCH_FUNC(__pz_div_1)(double complex x, double complex y)
+double _Complex
+MTH_DISPATCH_FUNC(__pz_div_1)(double _Complex x, double _Complex y)
 {
-  double complex (*fptr)(double complex, double complex);
+  double _Complex (*fptr)(double _Complex, double _Complex);
   _MTH_I_INIT();
   _MTH_I_STATS_INC(func_div,sv_zs,frp_p);
-  fptr = (double complex(*)(double complex, double complex))MTH_DISPATCH_TBL[func_div][sv_zs][frp_p];
+  fptr = (double _Complex(*)(double _Complex, double _Complex))MTH_DISPATCH_TBL[func_div][sv_zs][frp_p];
   return (fptr(x, y));
 }
 
@@ -5636,33 +6186,33 @@ MTH_DISPATCH_FUNC(__pd_sqrt_2m)(vrd2_t x, vid2_t m)
   return (fptr(x, m));
 }
 
-float complex
-MTH_DISPATCH_FUNC(__fc_sqrt_1)(float complex x)
+float _Complex
+MTH_DISPATCH_FUNC(__fc_sqrt_1)(float _Complex x)
 {
-  float complex (*fptr)(float complex);
+  float _Complex (*fptr)(float _Complex);
   _MTH_I_INIT();
   _MTH_I_STATS_INC(func_sqrt,sv_cs,frp_f);
-  fptr = (float complex(*)(float complex))MTH_DISPATCH_TBL[func_sqrt][sv_cs][frp_f];
+  fptr = (float _Complex(*)(float _Complex))MTH_DISPATCH_TBL[func_sqrt][sv_cs][frp_f];
   return (fptr(x));
 }
 
-float complex
-MTH_DISPATCH_FUNC(__rc_sqrt_1)(float complex x)
+float _Complex
+MTH_DISPATCH_FUNC(__rc_sqrt_1)(float _Complex x)
 {
-  float complex (*fptr)(float complex);
+  float _Complex (*fptr)(float _Complex);
   _MTH_I_INIT();
   _MTH_I_STATS_INC(func_sqrt,sv_cs,frp_r);
-  fptr = (float complex(*)(float complex))MTH_DISPATCH_TBL[func_sqrt][sv_cs][frp_r];
+  fptr = (float _Complex(*)(float _Complex))MTH_DISPATCH_TBL[func_sqrt][sv_cs][frp_r];
   return (fptr(x));
 }
 
-float complex
-MTH_DISPATCH_FUNC(__pc_sqrt_1)(float complex x)
+float _Complex
+MTH_DISPATCH_FUNC(__pc_sqrt_1)(float _Complex x)
 {
-  float complex (*fptr)(float complex);
+  float _Complex (*fptr)(float _Complex);
   _MTH_I_INIT();
   _MTH_I_STATS_INC(func_sqrt,sv_cs,frp_p);
-  fptr = (float complex(*)(float complex))MTH_DISPATCH_TBL[func_sqrt][sv_cs][frp_p];
+  fptr = (float _Complex(*)(float _Complex))MTH_DISPATCH_TBL[func_sqrt][sv_cs][frp_p];
   return (fptr(x));
 }
 
@@ -5726,38 +6276,38 @@ MTH_DISPATCH_FUNC(__pc_sqrt_2m)(vcs2_t x, vis2_t m)
   return (fptr(x, m));
 }
 
-double complex
-MTH_DISPATCH_FUNC(__fz_sqrt_1)(double complex x)
+double _Complex
+MTH_DISPATCH_FUNC(__fz_sqrt_1)(double _Complex x)
 {
-  double complex (*fptr)(double complex);
+  double _Complex (*fptr)(double _Complex);
   _MTH_I_INIT();
   _MTH_I_STATS_INC(func_sqrt,sv_zs,frp_f);
-  fptr = (double complex(*)(double complex))MTH_DISPATCH_TBL[func_sqrt][sv_zs][frp_f];
+  fptr = (double _Complex(*)(double _Complex))MTH_DISPATCH_TBL[func_sqrt][sv_zs][frp_f];
   return (fptr(x));
 }
 
-double complex
-MTH_DISPATCH_FUNC(__rz_sqrt_1)(double complex x)
+double _Complex
+MTH_DISPATCH_FUNC(__rz_sqrt_1)(double _Complex x)
 {
-  double complex (*fptr)(double complex);
+  double _Complex (*fptr)(double _Complex);
   _MTH_I_INIT();
   _MTH_I_STATS_INC(func_sqrt,sv_zs,frp_r);
-  fptr = (double complex(*)(double complex))MTH_DISPATCH_TBL[func_sqrt][sv_zs][frp_r];
+  fptr = (double _Complex(*)(double _Complex))MTH_DISPATCH_TBL[func_sqrt][sv_zs][frp_r];
   return (fptr(x));
 }
 
-double complex
-MTH_DISPATCH_FUNC(__pz_sqrt_1)(double complex x)
+double _Complex
+MTH_DISPATCH_FUNC(__pz_sqrt_1)(double _Complex x)
 {
-  double complex (*fptr)(double complex);
+  double _Complex (*fptr)(double _Complex);
   _MTH_I_INIT();
   _MTH_I_STATS_INC(func_sqrt,sv_zs,frp_p);
-  fptr = (double complex(*)(double complex))MTH_DISPATCH_TBL[func_sqrt][sv_zs][frp_p];
+  fptr = (double _Complex(*)(double _Complex))MTH_DISPATCH_TBL[func_sqrt][sv_zs][frp_p];
   return (fptr(x));
 }
 
 /*
- * Real/complex passed as vectors of length 1.
+ * Real/_Complex passed as vectors of length 1.
  */
 
 vcs1_t
@@ -6781,7 +7331,7 @@ MTH_DISPATCH_FUNC(__pz_sqrt_1v)(vcd1_t x)
 }
 
 //////////
-// EXPERIMENTAL - COMPLEX - end
+// EXPERIMENTAL - _Complex - end
 //////////
 
 #if     defined(TARGET_LINUX_X8664) && ! defined(MTH_I_INTRIN_STATS) && ! defined(MTH_I_INTRIN_INIT)

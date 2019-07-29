@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2015-2018, NVIDIA CORPORATION.  All rights reserved.
+ * Copyright (c) 2015-2019, NVIDIA CORPORATION.  All rights reserved.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -49,10 +49,10 @@ void lldbg_emit_subprogram(LL_DebugInfo *db, SPTR sptr, DTYPE ret_dtype,
    \param findex
    \param func_name
    \param startlineno
-   
+
    Side-effect: store the metadata in the LL_DebugInfo struct.
-   
- 
+
+
    A function pointer to the corresponding LLVM function must be set later by
    lldbg_set_func_ptr().
  */
@@ -159,6 +159,40 @@ LL_MDRef lldbg_get_var_line(LL_DebugInfo *db, int sptr);
 LL_MDRef lldbg_subprogram(LL_DebugInfo *db);
 
 /**
+   \brief The types of entity for debug metadata !DIImportedEntity
+ */
+typedef enum import_entity_type {
+  IMPORTED_DECLARATION = 0,
+  IMPORTED_MODULE = 1,
+  IMPORTED_UNIT = 2
+} IMPORT_TYPE;
+
+/**
+   \brief Emit DICommonBlock mdnode
+ */
+LL_MDRef lldbg_emit_common_block_mdnode(LL_DebugInfo *db, SPTR sptr);
+
+/**
+   \brief ...
+ */
+void lldbg_create_cmblk_mem_mdnode_list(SPTR sptr, SPTR gblsym);
+
+/**
+   \brief Add one symbol to the list of pending import entities.
+   \param db      the debug info object
+   \param entity  the symbol of module or variable to be imported
+   \param entity_type  0 indicates DECLARATION, 1 indicates MODULE, 
+   2 indicates UNIT.
+ */
+void lldbg_add_pending_import_entity(LL_DebugInfo *db, SPTR entity,
+                                     IMPORT_TYPE entity_type);
+
+/**
+   \brief Create a temporary debug name.
+ */
+const char *new_debug_name(const char *str1, const char *str2, const char *str3);
+
+/**
    \brief ...
  */
 void lldbg_cleanup_missing_bounds(LL_DebugInfo *db, int findex);
@@ -172,7 +206,7 @@ void lldbg_emit_accel_global_variable(LL_DebugInfo *db, SPTR sptr, int findex,
 
 /**
    \brief Emit a metadata node for a global variable.
- 
+
    Note that all LLVM globals are referenced as pointers, so \p value should
    have a pointer type.
  */
@@ -192,7 +226,8 @@ void lldbg_emit_lv_list(LL_DebugInfo *db);
 /**
    \brief ...
  */
-void lldbg_emit_outlined_parameter_list(LL_DebugInfo *db, int findex, DTYPE *param_dtypes, int num_args);
+void lldbg_emit_outlined_parameter_list(LL_DebugInfo *db, int findex,
+                                        DTYPE *param_dtypes, int num_args);
 
 /**
    \brief Free all memory used by \p db
@@ -242,19 +277,10 @@ void lldbg_set_func_ptr(LL_DebugInfo *db, LL_Value *func_ptr);
  */
 void lldbg_update_arrays(LL_DebugInfo *db, int lastDType, int newSz);
 
-/**
-   \brief ...
- */
-void lldbg_emit_imported_entity(LL_DebugInfo *db, int entity_sptr,
-                                int func_sptr, int is_mod);
-
-/**
-   \brief ...
- */
-void lldbg_create_cmblk_mem_mdnode_list(int sptr, int gblsym);
-
 /// \brief Initialize the DIFLAG values
 /// The values may vary depending on the LLVM branch being used
-void InitializeDIFlags(const LL_IRFeatures* feature);
+void InitializeDIFlags(const LL_IRFeatures *feature);
+
+void lldbg_reset_module(LL_DebugInfo *db);
 
 #endif /* LLDEBUG_H_ */

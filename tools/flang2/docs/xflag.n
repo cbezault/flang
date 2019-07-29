@@ -1,5 +1,5 @@
 .\"/*
-.\" * Copyright (c) 1997-2018, NVIDIA CORPORATION.  All rights reserved.
+.\" * Copyright (c) 1997-2019, NVIDIA CORPORATION.  All rights reserved.
 .\" *
 .\" * Licensed under the Apache License, Version 2.0 (the "License");
 .\" * you may not use this file except in compliance with the License.
@@ -290,6 +290,8 @@ or array assignment needs a temp.
 .XB 0x200000
 In Fortran front end, disable early flow analysis to determine if the forall
 or array assignment needs a temp.
+.XB 0x400000
+In Fortran front end, disable kernels rescoping.
 
 .XF "5:"
 CG uses
@@ -1314,6 +1316,13 @@ definition on only one side of the conditional.
 .XB 0x10:
 LLVM - disable extended conditional vectorization in all loops where the
 predicate size is different than the computational size.
+.XB 0x20:
+LLVM - allow vectorization if multiple lhs data type sizes exist
+       within the inner loop
+.XB 0x40:
+LLVM - don't allow vectorization of DBLE ili
+.XB 0x80:
+LLVM - don't allow vectorization of DFLOAT/IKMV ili
 
 .XF "37":
 .XB 0x01:
@@ -1377,7 +1386,7 @@ LLVM compilers, check use counts
 .XB 0x10000000
 LLVM compilers, don't perform newton's method within llvect
 .XB 0x20000000
-Don't allow CVECT with just one link to flow down this value without merge
+Allow CVECT with just one link to flow down this value without merge
 .XB 0x40000000
 LLVM compilers, don't perform vectorization on induction iterators
 .XB 0x80000000
@@ -1754,6 +1763,24 @@ from STOP commands as the program exit status.
 .XB 0x20:
 Assume that dummy arguments declared EXTERNAL are Fortran routines
 that were compiled with Flang.
+.XB 0x40:
+Enable contiguity pointer checks on pointer assignments and on actual arguments
+inside callees.
+.XB 0x80:
+Enable contiguity pointer checks at call-sites.
+.XB 0x100:
+Use an alternate contiguity pointer check inline that checks whether the
+pointer target's descriptor flags have __SEQUENTIAL_SECTION set and
+whether the object's data type length match the descriptor's data type
+length. This check is experimental and intended for pointer
+assignments and actual arguments inside callees. This check cannot currently
+be generated at a call-sites. The XBIT(54, 0x40) must also be enabled. If
+XBIT(54, 0x80) is enabled, then we perform the contiguity check at
+call-sites using a library routine. Note: In the case of an optional argument,
+the inline check will also check whether the argument is present.
+.XB 0x200:
+When checking contiguity (using XBIT(54,0x40), XBIT(54,0x80), XBIT(54,0x100)), 
+do not flag null pointer targets as noncontiguous. 
 
 .XF "55:" 
 .XB 0x01:
@@ -2095,7 +2122,8 @@ of instructions that might be matched.
 For user-defined intrinsics, prefix __ to name, convert to lower case,
 like the DMD intrinsics.
 .XB 0x400:
-DO expand st100 intrinsics in GP16 mode
+Disable Scalar Replacement optimization (no chains will be generated and
+no code generation for accelerator region)
 .XB 0x1000:
 Use 'old' integer array dependence test
 .XB 0x2000:
@@ -2139,6 +2167,8 @@ Don't mangle function names
 Use small IPA export protocol.
 .XB 0x40000000
 datadep.c, disable Fortran based-array conflict addition for unknown base vars
+.XB 0x80000000
+Use the 'optimized' datatype for a called function
 
 .XF "67:"
 Branch optimizations.
@@ -3789,7 +3819,7 @@ is set to MAX_BLOCKS rather than 500.
 
 .XF "137:"
 .XB 0x01:
-Enable CUDA Fortran parsing.
+Enable CUDA C++ and Fortran parsing.
 .XB 0x02:
 Enable CUDA Fortran emulation.
 .XB 0x04:
@@ -4120,6 +4150,8 @@ Accelerator messages
 Unified binary messages
 .XB 0x10000:
 Additional information, usually used only for regression testing
+.XB 0x20000:
+PCAST messages
 .XB 0x100000:
 Use short tags
 
@@ -4776,6 +4808,10 @@ Disable generation of !llvm.loop metadata
 (C/C++ only) Disable the LLVM inliner by marking all routines with the LLVM attribute 'noinline'.
 .XB 0x10000000:
 Enable arithmetic widening on address arithmetic.
+.XB 0x20000000:
+Put constants in non read-only memories.
+.XB 0x40000000:
+Emit DWARF name for Fortran COMMON blocks.
 
 .XF "184:"
 ARM modifications
@@ -5237,6 +5273,13 @@ Print array assignments using pointer arithmetic always.
 Don't demote address KMUL operations
 .XB 0x200000:
 in LLVM output, don't output the instruction info (lilix index, opcode)
+.XB 0x400000:
+.XB 0x800000:
+If the number of ACIV induction variables is too large, kill off all
+but the innermost loop ones.
+.XB 0x1000000:
+Only find ACIV induction variables for innermost loops.
+reserved
 
 .XF "202:"
 Set number of bigbuffers for multi-buffer memory management for AMD GPU.
@@ -5384,12 +5427,35 @@ POWER Modifications
 .XB 0x01:
 Enable auto initialization of stack memory to 64bit signaling NaNs.
 
+.XF "218:"
+reserved
+
 .XF "220:"
 Enable tuning code for -Minline.
 .XF "221:"
 This sets the maximum caller function size into which to Minline.
 .XF "222:"
 Functions whose size if smaller than this value will get inlined by Minline.
+
+.XF "232:"
+OpenMP Accelerator Model flags for Flang compiler
+.XB 0x01:
+Enable outlining for device functions. Compiler creates a extra function for teams, parallel directives in the device.
+.XB 0x02:
+Disable symbol replacer while saving ILM of outlined function. It is enabled normally for OpenMP GPU offload.
+.XB 0x04:
+Disable skipping openmp cpu reduction code generation. We normally skip it since gpu has different implementation.
+.XB 0x08:
+Enable debug information for GPU code. Experimental
+.XB 0x10:
+Init libomptarget library in the main instead of constructor.
+.XB 0x20:
+Enable codegne for push loop trip count for libomptarget runtime.
+.XB 0x40:
+Enable codegen for spmd kernel init.
+
+.XF "233:"
+reserved
 
 .XF "248:"
 OpenMP Threadprivate TLS/TPvector implementation control.
@@ -5405,3 +5471,4 @@ Set number of bigbuffers for multi-buffer memory management for AMD GPU.
 (moved to 202)
 .XF "251:"
 (NOT available - check declaration in global.h for flg.x[], all compilers)
+

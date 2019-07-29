@@ -1,5 +1,5 @@
 .\"/*
-.\" * Copyright (c) 1994-2018, NVIDIA CORPORATION.  All rights reserved.
+.\" * Copyright (c) 1994-2019, NVIDIA CORPORATION.  All rights reserved.
 .\" *
 .\" * Licensed under the Apache License, Version 2.0 (the "License");
 .\" * you may not use this file except in compliance with the License.
@@ -306,6 +306,11 @@ Used only the save and restore of CONTAIN'd functions.  The AST saved by
 restore_internal_subprograms contains the ID name rather than the SPTR.
 .FL CALLFG f5
 May be referenced, though is never set for an ID
+.FL PTRREF f4
+Set when this is a pointer actual argument that is passed by reference 
+(e.g., the dummy argument is a pointer to pointer argument such as char**). 
+This is currently used for the element argument in the RTE_poly_element_addr 
+runtime routines.
 .lp
 .ul
 Other Fields
@@ -319,6 +324,11 @@ If node evaluates to a constant, this field locates
 the \f(CWCNST\fP node representing the value.
 .SE NME w12
 Names information (see nme.h).
+.SE ORIG_EXPR w18
+When set, this represents the original expression of this ast. For example,
+we use this field when we replace a subscripted expression with a pointer. We
+may have to go back to the original expression if the subscripted expression is
+used in a type bound procedure call.  
 .lp
 .SM CNST
 .SI constant EXPR
@@ -2371,6 +2381,8 @@ May be referenced
 .ul
 Other Fields
 .OV STD HSHLK
+.SE ISOMPREDUCTION w6
+set if it openmp's reduction
 .SE LOP
 AST pointer to the corresponding \f(CWA_ENDCRITICAL\fP.
 .lp
@@ -2389,6 +2401,8 @@ Other Fields
 .OV STD HSHLK
 .SE LOP
 AST pointer to the corresponding \f(CWA_CRITICAL\fP.
+.SE ISOMPREDUCTION
+set if it openmp's reduction
 .lp
 .SM ATOMIC
 .SI "atomic update"
@@ -3484,7 +3498,11 @@ Other Fields
 .OV STD HSHLK
 .SE IFPAR
 AST of the logical expression appearing in the if clause; zero if not present.
-.SE LOP 
+.SE COMBINEDTYPE w6
+combined construct mode
+.SE LOOPTRIPCOUNT w7
+AST trip count
+.SE LOP
 AST pointer to the corresponding \f(CWA_MP_ENDTARGET\fP.
 .lp
 .SM MP_ENDTARGET
@@ -3538,6 +3556,100 @@ Other Fields
 .OV STD HSHLK
 .SE LOP
 AST pointer to the corresponding \f(CWA_MP_TEAMS\fP.
+.lp
+.SM MP_BREDUCTION
+.SI "beginreduction"
+.lp
+OpenMP reduction begin.
+.lp
+.ul
+Flags
+.FL CALLFG
+May be referenced
+.lp
+.ul
+Other Fields
+.OV STD HSHLK
+.SE LOP
+AST pointer to the corresponding \f(CWA_MP_TEAMS\fP.
+.lp
+.SM MP_EREDUCTION
+.SI "endreduction"
+.lp
+OpenMP reduction end.
+.lp
+.ul
+Flags
+.FL CALLFG
+May be referenced
+.lp
+.ul
+Other Fields
+.OV STD HSHLK
+.SE LOP
+AST pointer to the corresponding \f(CWA_MP_TEAMS\fP.
+.lp
+.SM MP_EMAP
+.SI "endmap"
+.lp
+OpenMP map clause.
+.lp
+.ul
+Flags
+.FL CALLFG
+May be referenced
+.lp
+.ul
+Other Fields
+.OV STD HSHLK
+.SE LOP
+AST pointer to the corresponding \f(CWA_MP_TEAMS\fP.
+.lp
+.SM MP_TARGETLOOPTRIPCOUNT
+.SI "target loop trip count"
+.lp
+Trip count for distribute or for within target region
+.lp
+.ul
+Flags
+.FL CALLFG
+May be referenced
+.lp
+.ul
+Other Fields
+.OV STD HSHLK
+.SE LOP
+AST pointer to the corresponding \f(CWA_MP_TEAMS\fP.
+.lp
+.SM MP_MAP
+.SI "map"
+.lp
+OpenMP map clause end.
+.lp
+.ul
+Flags
+.FL CALLFG
+May be referenced
+.lp
+.ul
+Other Fields
+.OV STD HSHLK
+.SE LOP
+AST pointer to the corresponding \f(CWA_MP_TEAMS\fP.
+.lp
+.SM MP_REDUCTIONITEM
+.SI "reductionitem"
+.lp
+OpenMP reduction item.
+.lp
+.ul
+Other Fields
+.SE PRVSYM w3
+reduction private symbol
+.SE SHSYM w4
+reduction shared symbol
+.SE REDOPR w5
+reduction operator
 .lp
 .SM MP_DISTRIBUTE
 .SI "distribute"

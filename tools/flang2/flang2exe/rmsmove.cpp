@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2012-2018, NVIDIA CORPORATION.  All rights reserved.
+ * Copyright (c) 2012-2019, NVIDIA CORPORATION.  All rights reserved.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -16,7 +16,7 @@
  */
 
 /** \file
- * \brief Fix up and optimize general IL_SMOVEI operations.
+ * \brief Fix up and optimize general IL_SMOVEJ operations.
  *
  * Smove may be added by the expander, or by other transformations, such as the
  * accelerator compiler or IPA, when adding struct assignments.
@@ -53,7 +53,7 @@ fixup_nme(int nmex, int msize, int offset, int iter)
   int sym;
   char *name = NULL;
   int name_len;
-  bool is_malloced = FALSE;
+  bool is_malloced = false;
 
   if (nmex <= 0 || NME_TYPE(nmex) != NT_VAR || NME_SYM(nmex) <= 0)
     return nmex;
@@ -80,7 +80,7 @@ fixup_nme(int nmex, int msize, int offset, int iter)
   } else {
     name = (char *)malloc(name_len);
     assert(name != NULL, "Fail to malloc a buffer", nmex, ERR_Fatal);
-    is_malloced = TRUE;
+    is_malloced = true;
   }
 
   sprintf(name, "..__smove__%s__%d", SYMNAME(sym), iter);
@@ -110,19 +110,19 @@ rm_smove(void)
   if (USE_GSMOVE)
     exp_remove_gsmove();
   for (bihx = gbl.entbih; bihx; bihx = BIH_NEXT(bihx)) {
-    bool have_smove = FALSE;
+    bool have_smove = false;
     rdilts(bihx);
     for (iltx = BIH_ILTFIRST(bihx); iltx; iltx = ILT_NEXT(iltx)) {
       ilix = ILT_ILIP(iltx);
-      if (ILI_OPC(ilix) == IL_SMOVEI) {
-        /* target-dependent optimizations */
-        int srcy = ILI_OPND(ilix, 1);
-        int destx = ILI_OPND(ilix, 2);
-        int len = ILI_OPND(ilix, 3);
-        int dest_nme = ILI_OPND(ilix, 4);
-        int srcx = ILI_OPND(srcy, 1);
-        int src_nme = ILI_OPND(srcy, 2);
+      if (ILI_OPC(ilix) == IL_SMOVEJ) {
+        int srcx, src_nme, destx, dest_nme, len;
         int i, n, offset = 0, any = 0;
+        /* target-dependent optimizations */
+        srcx = ILI_OPND(ilix, 1);
+        src_nme = ILI_OPND(ilix, 3);
+        destx = ILI_OPND(ilix, 2);
+        dest_nme = ILI_OPND(ilix, 4);
+        len = ILI_OPND(ilix, 5);
         offset = 0;
         if (len > SMOVE_MIN) {
           /* turn the SMOVEI into SMOVE, change the len to IL_ACON */
@@ -144,7 +144,7 @@ rm_smove(void)
           ILI_OPND(ilix, 3) = new_acon;
           len -= offset;
           ++any;
-          have_smove = TRUE;
+          have_smove = true;
         }
         if (XBIT(2, 0x4000)) {
           src_nme = NME_UNK;
@@ -173,12 +173,11 @@ rm_smove(void)
             if (!any) {
               /* reuse this ILT */
               ILT_ILIP(iltx) = ilix;
-              /* llvm code generator relies on this flag */
-              if (IL_TYPE(ILI_OPC(ilix)) == ILTY_STORE)
-                ILT_ST(iltx) = 1;
-
+              /* flag this as a store operation */
+              ILT_ST(iltx) = 1;
             } else {
               iltx = addilt(iltx, ilix);
+              /* ILT_ST gets set by addilt here */
             }
             ++any;
             offset += msize;

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1994-2018, NVIDIA CORPORATION.  All rights reserved.
+ * Copyright (c) 1994-2019, NVIDIA CORPORATION.  All rights reserved.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -32,6 +32,7 @@
 #include "semstk.h"
 #include "machar.h"
 #include "ast.h"
+#define RTE_C
 #include "rte.h"
 #include "pd.h"
 #include "direct.h"
@@ -65,6 +66,10 @@ static LOGICAL subst_lhs_arrfn(int, int, int);
 static LOGICAL subst_lhs_pointer(int, int, int);
 static LOGICAL not_in_arrfn(int, int);
 static int find_pointer_variable_assign(int, int);
+
+static int inline_contig_check(int src, SPTR src_sptr, SPTR sdsc, int std);
+static bool is_selector(SPTR sptr);
+
 
 /*---------------------------------------------------------------------*/
 
@@ -526,7 +531,6 @@ cngtyp(SST *old, int newtyp)
       goto type_error;
     }
     break;
-
   case TY_REAL:
     switch (from) {
     case TY_BLOG:
@@ -1307,6 +1311,7 @@ mklvalue(SST *stkptr, int stmt_type)
         sptr = insert_sym(sptr);
       DTYPEP(sptr, dtype);
       DCLDP(sptr, dcld);
+      DCLCHK(sptr);
     } else if (stmt_type == 5) {
       int doif = sem.doif_depth;
       dtype = DI_FORALL_DTYPE(doif) ? DI_FORALL_DTYPE(doif) : DTYPEG(sptr);
@@ -1315,6 +1320,7 @@ mklvalue(SST *stkptr, int stmt_type)
         sptr = insert_sym(sptr);
       DTYPEP(sptr, dtype);
       DCLDP(sptr, dcld);
+      DCLCHK(sptr);
     }
 
     switch (STYPEG(sptr)) {
@@ -1526,6 +1532,24 @@ mklvalue(SST *stkptr, int stmt_type)
     } else if (stmt_type == 0 && (DI_ID(sem.doif_depth) == DI_SIMD)) {
       sptr = decl_private_sym(sptr);
     }
+    /*    Induction variables can be inside of struct frame pointer that is passed
+       by caller subroutine. To use them, the compiler needs to extract them inside
+       of the loop. It might the compiler to think there are additional codes
+       between the loops even though the loops are tightly nested. In this case, the
+       compiler might not generate parallel code. Here, we create a new variable
+       with the same name of induction variables.
+    */
+    if (stmt_type == 0 && flg.smp && (SCG(sptr) != SC_PRIVATE) && 
+            sem.expect_cuf_do ) {
+       int newsptr;
+       newsptr = insert_sym(sptr);
+       DCLDP(newsptr, TRUE);
+       DTYPEP(newsptr, DTYPEG(sptr));
+       STYPEP(newsptr, STYPEG(sptr));
+       sptr = newsptr;
+       sem.index_sym_to_pop = newsptr;
+     }
+
     sptr = ref_object(sptr);
     SST_DTYPEP(stkptr, DTYPEG(sptr));
     dtype = DDTG(DTYPEG(sptr)); /* element dtype record */
@@ -1691,8 +1715,9 @@ mklvalue(SST *stkptr, int stmt_type)
     else
       set_assn(sptr);
   } else if (stmt_type == 1 && !POINTERG(lval ? memsym_of_ast(lval) : sptr)) {
-    if (!lval)
-      set_assn(sptr);
+    if (!lval) {
+        set_assn(sptr);
+    }
     else
       set_assn(sym_of_ast(lval));
   } else if (stmt_type == 3)
@@ -1714,7 +1739,7 @@ static INT
 const_xtoi(INT conval1, INT cnt, int dtype)
 {
   union {
-    INT64 i64;
+    DBLINT64 i64;
     BIGINT64 bgi;
   } u;
 
@@ -2501,6 +2526,38 @@ ast_isparam(int ast)
   return FALSE;
 }
 
+/** \brief Checks whether a symbol is used in a select type or associate
+ *         construct as a selector.
+ *
+ *  \param sptr is the symbol we are checking.
+ *
+ *  \return true if symbol is a selector in an associate/select type
+ *          construct; else false.
+ */
+static bool
+is_selector(SPTR sptr)
+{
+
+  int i;
+  ITEM *itemp;
+  int doif = sem.doif_depth;
+
+  for(i=doif; i > 0; --i) {
+    if (DI_ID(i) == DI_ASSOC) { 
+      for (itemp = DI_ASSOCIATIONS(doif); itemp != NULL; 
+           itemp = itemp->next) {
+        if (itemp->t.sptr == sptr) {
+          return true;
+        }
+      }
+    } else if (DI_ID(i) == DI_SELECT_TYPE && 
+               strcmp(SYMNAME(sptr), SYMNAME(DI_SELECTOR(i))) == 0) {
+      return true;
+    }
+  } 
+  return false;
+}
+
 static int
 ref_array(SST *stktop, ITEM *list)
 {
@@ -2770,7 +2827,22 @@ ref_array(SST *stktop, ITEM *list)
         SST_SYMP(stktop, A_SPTRG(ast));
     }
   }
-
+  if (!isvec && CLASSG(sptr) && !MONOMORPHICG(sptr) && 
+      !is_selector(sptr) && !is_unl_poly(sptr) && !sem.in_array_const) {
+    /* Provide polymorphic address for the polymorphic subscripted reference.
+     *
+     * Note the following expressions are handled separately:
+     *
+     * 1. selectors that are a part of a select type or associate construct.
+     * 2. unlimited polymorphic objects.
+     * 3. expressions inside an array constructor.
+     *
+     */
+    int std = add_stmt(mk_stmt(A_CONTINUE, 0));
+    int astnew = gen_poly_element_arg(ast, sptr, std);
+    A_ORIG_EXPRP(astnew, ast);
+    SST_ASTP(stktop, astnew);
+  } 
   return 1;
 }
 
@@ -3765,6 +3837,130 @@ assign_pointer(SST *newtop, SST *stktop)
   return add_ptr_assign(dest, source, 0);
 }
 
+/** \brief Generates a call to a poly_element_addr runtime routine that
+ *         computes the address of a polymorphic array element.
+ *
+ *         This is required when our passed object argument of a type bound
+ *         procedure call is an array element.
+ *
+ *  \param ast is the ast of the passed object argument (an A_SUBSCR ast).
+ *  \param sptr is the symbol table pointer of the passed object argument.
+ *  \param std is the current statement descriptor.
+ *
+ *  \return an ast that represents the pointer that holds the address of the
+ *          polymorphic array element. 
+ */
+int
+gen_poly_element_arg(int ast, SPTR sptr, int std) 
+{
+
+  SPTR func, tmp, ptr, sdsc, ptr_sdsc;
+  int astnew, args;
+  int asd, numdim, i, ss;
+  int tmp_ast, ptr_ast, sdsc_ast, ptr_sdsc_ast;
+  DTYPE dtype;
+  FtnRtlEnum rtlRtn;
+
+  dtype = DTYPEG(sptr);
+
+  assert(DTY(dtype) == TY_ARRAY, "gen_poly_element_arg: Expected array dtype",
+             dtype, 4);
+
+  dtype = DTY(dtype+1);
+
+  asd = A_ASDG(ast);
+  numdim = ASD_NDIM(asd);
+  args = mk_argt(3+numdim);
+
+  for (i = 0; i < numdim; ++i) {
+    ss = ASD_SUBS(asd, i);
+    ARGT_ARG(args, 3+i) = ss;
+  }
+
+  ARGT_ARG(args, 0) = A_LOPG(ast);
+  if (SCG(sptr) == SC_DUMMY && (needs_descriptor(sptr) || CLASSG(sptr))) {
+    fix_class_args(gbl.currsub);
+    sdsc = get_type_descr_arg(gbl.currsub, sptr);
+  } else {
+    sdsc = 0;
+  }
+  if (sdsc <= NOSYM) {
+    do {
+      if (STYPEG(sptr) == ST_MEMBER) {
+        sdsc = get_member_descriptor(sptr);
+      } else {
+        sdsc = SDSCG(sptr);
+      }
+      if (sdsc > NOSYM) {
+        break;
+      }
+      get_static_descriptor(sptr);
+      assert(SDSCG(sptr) > NOSYM, "gen_poly_element_arg: get_static_descriptor"
+             " failed", sptr, 4); /* sanity check */
+    } while(true); 
+  }
+
+  sdsc_ast = mk_id(sdsc);
+  sdsc_ast = check_member(ast, sdsc_ast);
+
+  ptr = getccsym_sc('d', sem.dtemps++, ST_VAR, SC_LOCAL);
+  DTYPEP(ptr, dtype);
+  POINTERP(ptr, 1);
+  CLASSP(ptr, CLASSG(sptr));
+  ADDRTKNP(ptr, 1);  
+  set_descriptor_rank(1);
+  get_static_descriptor(ptr);
+  set_descriptor_rank(0);
+  ptr_sdsc = SDSCG(ptr);
+  ptr_sdsc_ast = mk_id(ptr_sdsc);
+  
+  if (DTY(dtype) == TY_DERIVED) { 
+    astnew = mk_set_type_call(ptr_sdsc_ast, sdsc_ast, 0);
+  } else {
+    int type_code = dtype_to_arg(DTY(dtype));
+    type_code = mk_cval1(type_code, DT_INT);
+    type_code = mk_unop(OP_VAL, type_code, DT_INT);
+    astnew = mk_set_type_call(ptr_sdsc_ast, type_code, 1);
+  }
+
+  std = add_stmt_before(astnew, std);
+  
+  ARGT_ARG(args, 1) = sdsc_ast;
+
+  switch(numdim) {
+  case 1:
+    rtlRtn = RTE_poly_element_addr1;
+    break;
+  case 2:
+    rtlRtn = RTE_poly_element_addr2;
+    break;
+  case 3:
+    rtlRtn = RTE_poly_element_addr3;
+    break;
+  default:
+    rtlRtn = RTE_poly_element_addr;
+  }
+    
+  func = mk_id(sym_mkfunc_nodesc(mkRteRtnNm(rtlRtn), DT_NONE));
+
+  tmp = getccsym_sc('d', sem.dtemps++, ST_VAR, SC_LOCAL);
+  DTYPEP(tmp, dtype);
+  POINTERP(tmp, 1);
+  tmp_ast = mk_id(tmp);
+  A_DTYPEP(tmp_ast, dtype);
+  A_PTRREFP(tmp_ast, 1);
+  ARGT_ARG(args, 2) = tmp_ast;
+
+  astnew = mk_func_node(A_CALL, func, 3+numdim, args);
+      
+  std = add_stmt_after(astnew, std);
+ 
+  ptr_ast = mk_id(ptr);
+  astnew = add_ptr_assign(ptr_ast, tmp_ast, std);
+  add_stmt_after(astnew, std);
+  return  ptr_ast;
+}
+
 int
 add_ptr_assign(int dest, int src, int std)
 {
@@ -3772,6 +3968,8 @@ add_ptr_assign(int dest, int src, int std)
   int ast;
   int dtype, tag;
   int dtype2, tag2, dtype3;
+  SPTR dest_sptr, src_sptr, sdsc;
+  int newargt, astnew;
 
   /* Check if the dest is scalar, if so assign len to descriptor
    * For array, it was done in runtime.
@@ -3843,17 +4041,15 @@ add_ptr_assign(int dest, int src, int std)
       add_stmt(cvlen);
   }
 
-  if (DTY(dtype) == TY_PTR) {
-    int dest_sptr, src_sptr, sdsc;
-    int newargt, func, astnew, zero;
-
-    if (ast_is_sym(src)) {
-      src_sptr = memsym_of_ast(src);
-    } else {
-      src_sptr = 0;
-    }
+  if (ast_is_sym(src)) {
+    src_sptr = memsym_of_ast(src);
+  } else {
+    src_sptr = 0;
+  }
   
-   dest_sptr = memsym_of_ast(dest);
+  dest_sptr = memsym_of_ast(dest);
+
+  if (DTY(dtype) == TY_PTR) {
 
     if (STYPEG(src_sptr) == ST_PROC) { 
       int iface=0, iface2=0, dpdsc=0, dpdsc2=0;
@@ -3896,13 +4092,198 @@ add_ptr_assign(int dest, int src, int std)
          add_stmt(astnew);
     }
   }
-
   func = intast_sym[I_PTR2_ASSIGN];
   ast = begin_call(A_ICALL, func, 2);
   A_OPTYPEP(ast, I_PTR2_ASSIGN);
   add_arg(dest);
   add_arg(src);
+  if (XBIT(54, 0x40) && ast_is_sym(dest) && CONTIGATTRG(memsym_of_ast(dest))) {
+    /* Add contiguity pointer check. We add the check after the pointer
+     * assignment so we will get the correct section descriptor for dest.
+     */
+    if (std) {
+      std = add_stmt_before(ast, std);
+    } else {
+      std = add_stmt(ast);
+    }
+    ast = mk_stmt(A_CONTINUE, 0);
+    std = add_stmt_after(ast, std);
+    gen_contig_check(dest, dest, 0, gbl.lineno, false, std);
+    ast = mk_stmt(A_CONTINUE, 0); /* return a continue statement */
+  }
   return ast;
+}
+
+/** \brief Generate contiguity check test inline (experimental)
+ *  
+ *  Called by gen_contig_check() below to generate the contiguity check inline.
+ *  This is an experimental test since it looks at the descriptor flags, 
+ *  data type, and src_sptr if src_sptr is an optional dummy argument. The
+ *  endif asts are generated in gen_contig_check().
+ *
+ *  \param src is the source/pointer target ast.
+ *  \param src_sptr is the source/pointer target sptr.
+ *  \param sdsc is the source/pointer target's descriptor
+ *  \param std is the optional statement descriptor for adding the check (0 
+ *         if not applicable).
+ *  
+ *  \return the statement descriptor (std) of the generated code.
+ */
+static int  
+inline_contig_check(int src, SPTR src_sptr, SPTR sdsc, int std)
+{
+  int flagsast = get_header_member_with_parent(src, sdsc, DESC_HDR_FLAGS);
+  int lenast = get_header_member_with_parent(src, sdsc, DESC_HDR_BYTE_LEN);
+  int sizeast = size_ast(src_sptr, DDTG(DTYPEG(src_sptr)));
+  int cmp, astnew, seqast, newargt;
+
+  /* Step 1: Add insertion point in AST */
+  astnew = mk_stmt(A_CONTINUE, 0);
+  if (std)
+    std = add_stmt_before(astnew, std);
+  else
+   std = add_stmt(astnew);
+
+  /* Step 2: If src_sptr is an optional argument, then generate an 
+   * argument "present" check. Also generate this check if XBIT(54, 0x200)
+   * is set which says to ignore null pointer targets.
+   */
+  if (XBIT(54, 0x200) || (SCG(src_sptr) == SC_DUMMY && OPTARGG(src_sptr))) {
+    int present = ast_intr(I_PRESENT, stb.user.dt_log, 1, src);
+    astnew = mk_stmt(A_IFTHEN, 0);
+    A_IFEXPRP(astnew, present);
+    std = add_stmt_after(astnew, std);
+  }
+   
+  /* Step 3: Check descriptor flag to see if it includes
+   * __SEQUENTIAL_SECTION.
+   */
+  seqast = mk_isz_cval(__SEQUENTIAL_SECTION, DT_INT);
+  flagsast = ast_intr(I_AND, astb.bnd.dtype, 2, flagsast, seqast);
+  cmp = mk_binop(OP_EQ, flagsast, astb.i0, DT_INT);
+  astnew = mk_stmt(A_IFTHEN, 0);
+  A_IFEXPRP(astnew, cmp); 
+  std = add_stmt_after(astnew, std);
+
+  /* Step 4: Check element size to see if it matches descriptor 
+   * element size (i.e., check for a noncontiguous array subobject like 
+   * p => dt(:)%m where dt has more than one component).
+   */
+  cmp = mk_binop(OP_EQ, lenast, sizeast, DT_INT);
+  astnew = mk_stmt(A_IFTHEN, 0);
+  A_IFEXPRP(astnew, cmp);
+  std = add_stmt_after(astnew, std);
+
+  return std;
+}
+
+/** \brief Generate a contiguous pointer check on a pointer assignment
+ * when applicable.
+ *
+ * \param dest is the destination pointer.
+ * \param src is the pointer target.
+ * \param sdsc is an optional descriptor argument to pass to the check 
+ * function (0 to use src's descriptor).
+ * \param srcLine is the line number associated with the check.
+ * \param cs is true when we are generating the check at a call-site.
+ * \param std is the optional statement descriptor for adding the check (0 
+ * if not applicable).
+ */
+void
+gen_contig_check(int dest, int src, SPTR sdsc, int srcLine, bool cs, int std)
+{
+  int newargt, astnew;
+  SPTR src_sptr, dest_sptr, func;
+  bool isFuncCall, inlineContigCheck, ignoreNullTargets;
+  int argFlags;
+
+  if (ast_is_sym(src)) {
+    src_sptr = memsym_of_ast(src);
+  } else {
+    interr("gen_contig_check: invalid src ast", src, 3);
+    src_sptr = 0; 
+  }
+ 
+  if (ast_is_sym(dest)) {
+    dest_sptr = memsym_of_ast(dest);
+  } else {
+    interr("gen_contig_check: invalid dest ast", dest, 3);
+    dest_sptr = 0;
+  }
+  isFuncCall = (RESULTG(dest_sptr) && FVALG(gbl.currsub) != dest_sptr);
+  /* If XBIT(54, 0x200) is set, we ignore null pointer targets. If
+   * we have an optional argument, then we need to igore it if it's 
+   * null (i.e., not present).
+   */
+  ignoreNullTargets = (XBIT(54, 0x200) || (SCG(dest_sptr) == SC_DUMMY && 
+                                          OPTARGG(dest_sptr)));
+  if (CONTIGATTRG(dest_sptr) || (CONTIGATTRG(src_sptr) && isFuncCall)) {
+    int lineno, ptrnam, srcfil;
+    if (sdsc <= NOSYM)
+      sdsc = SDSCG(src_sptr);
+    if (sdsc <= NOSYM)
+      get_static_descriptor(src_sptr);
+    if (STYPEG(src_sptr) == ST_MEMBER)
+      sdsc = get_member_descriptor(src_sptr);
+    if (sdsc <= NOSYM)
+      sdsc = SDSCG(src_sptr);
+    lineno = mk_cval1(srcLine, DT_INT);
+    lineno = mk_unop(OP_VAL, lineno, DT_INT);
+    ptrnam = !isFuncCall ? getstring(SYMNAME(dest_sptr), 
+                                     strlen(SYMNAME(dest_sptr))+1) :
+             getstring(SYMNAME(src_sptr), strlen(SYMNAME(src_sptr))+1);
+    srcfil = getstring(gbl.curr_file, strlen(gbl.curr_file)+1);
+    /* Check to see if we should inline the contiguity check. We do not
+     * currently inline it if the user is also generating checks at the
+     * call-site. Currently the inlining routine uses an argument structure
+     * that may conflict with the call-site (but not when we're generating
+     * checks for pointer assignments or arguments inside a callee). 
+     * We could possibly support inlining at the call-site by deferring the
+     * check after we generate the call-site code. However, this may be
+     * a lot of work for something that probably will not be used too often.
+     * Generating checks for pointer assignments and for arguments inside a
+     * callee are typically sufficient. The only time one needs to check
+     * the call-site is when the called routine is inside a library that was
+     * not compiled with contiguity checking.
+     */ 
+    inlineContigCheck = (XBIT(54, 0x100) && !cs);
+    if (inlineContigCheck) {
+      std = inline_contig_check(src, src_sptr, sdsc, std);
+    }
+    newargt = mk_argt(6);
+    ARGT_ARG(newargt, 0) = A_TYPEG(src) == A_SUBSCR ? A_LOPG(src) : src;
+    ARGT_ARG(newargt, 1) = STYPEG(sdsc) != ST_MEMBER ? mk_id(sdsc) :
+                           check_member(src, mk_id(sdsc));
+    ARGT_ARG(newargt, 2) = lineno;
+    ARGT_ARG(newargt, 3) = mk_id(ptrnam);
+    ARGT_ARG(newargt, 4) = mk_id(srcfil);
+    /* We can pass some flags about src here. For now, the flag is 1 if
+     * dest_sptr is an optional argument or if we do not want to flag null
+     * pointer targets. That way, we do not indicate a contiguity error
+     * if the argument is not present or if the pointer target is null.
+     */
+    argFlags = mk_cval1( ignoreNullTargets ? 1 : 0, DT_INT);
+    argFlags = mk_unop(OP_VAL, argFlags, DT_INT);
+    ARGT_ARG(newargt, 5) = argFlags;
+       
+    func = mk_id(sym_mkfunc_nodesc(inlineContigCheck ? 
+                                   mkRteRtnNm(RTE_contigerror) :
+                                   mkRteRtnNm(RTE_contigchk), DT_NONE));
+    astnew = mk_func_node(A_CALL, func, 6, newargt);
+    if (inlineContigCheck) {
+      /* generate endifs for inline contiguity checks */
+      std = add_stmt_after(astnew, std);
+      std = add_stmt_after(mk_stmt(A_ENDIF,0), std);
+      if (ignoreNullTargets) {
+        std = add_stmt_after(mk_stmt(A_ENDIF,0), std);
+      }
+      add_stmt_after(mk_stmt(A_ENDIF,0), std);
+    } else if (std) {
+      add_stmt_before(astnew, std);
+    } else {
+      add_stmt(astnew);
+    }
+  }
 }
 
 int
@@ -4147,7 +4528,9 @@ void
 set_assn(int sptr)
 {
   ASSNP(sptr, 1);
-  if (is_protected(sptr)) {
+  /* it's legal for inherited submodules to access protected variables 
+     defined parent modules, otherwise it's illegal */
+  if (is_protected(sptr) && !is_used_by_submod(gbl.currsub, sptr)) {
     err_protected(sptr, "be assigned");
   }
 }
@@ -5043,7 +5426,8 @@ mod_type(int dtype, int ty, int kind, int len, int propagated, int sptr)
       if (len == 4)
         return (DT_REAL4);
     }
-    error(31, 2, gbl.lineno, (sptr) ? SYMNAME(sptr) : "real", CNULL);
+    error(31, 2, gbl.lineno, (sptr) ? SYMNAME(sptr) :
+                                     (ty == TY_HALF ? "real2" : "real"), CNULL);
     break;
   case TY_DCMPLX:
     if (sem.ogdtype == DT_CMPLX16 && kind != 0) {
@@ -5115,9 +5499,9 @@ prtsst(SST *stkptr)
     if (dtype == DT_QUAD || dtype == DT_REAL8 || DT_ISCMPLX(dtype)) {
       return (getprint(val));
     } else {
-      if (DT_ISREAL(dtype))
+      if (DT_ISREAL(dtype)) {
         sprintf(symbuf, "%f", *(float *)&val);
-      else if (DT_ISLOG(dtype)) {
+      } else if (DT_ISLOG(dtype)) {
         if (val == SCFTN_TRUE)
           sprintf(symbuf, ".TRUE.");
         else
@@ -5319,6 +5703,18 @@ do_parbegin(DOINFO *doinfo)
   A_M1P(ast, doinfo->init_expr);
   A_M2P(ast, doinfo->limit_expr);
   A_M3P(ast, doinfo->step_expr);
+#ifdef OMP_OFFLOAD_LLVM
+  if(DI_ID(sem.doif_depth) == DI_PARDO &&
+     DI_ID(sem.doif_depth-1) == DI_TARGET) {
+    int targetast = DI_BTARGET(1);
+    int ast_looptc = mk_stmt(A_MP_TARGETLOOPTRIPCOUNT, 0);
+    A_LOOPTRIPCOUNTP(targetast, ast_looptc);
+    A_DOVARP(ast_looptc, dovar);
+    A_M1P(ast_looptc, doinfo->init_expr);
+    A_M2P(ast_looptc, doinfo->limit_expr);
+    A_M3P(ast_looptc, doinfo->step_expr);
+  }
+#endif
   if (DI_ID(sem.doif_depth) != DI_TASKLOOP) {
     A_CHUNKP(ast, DI_CHUNK(sem.doif_depth));
     A_DISTCHUNKP(ast, DI_DISTCHUNK(sem.doif_depth)); /* currently unused */
@@ -5570,7 +5966,7 @@ collapse_add(DOINFO *doinfo)
 {
   int dtype;
   SST tsst;
-  int ast, dest_ast;
+  int ast, dest_ast, std;
   int count_var;
 
   dtype = DTYPEG(doinfo->index_var);
@@ -5653,8 +6049,10 @@ collapse_add(DOINFO *doinfo)
       ast = do_simdbegin(dinf);
     else
       ast = do_parbegin(dinf);
-    (void)add_stmt(ast);
+    std = add_stmt(ast);
     sem.doif_depth = sv;
+    if (DI_ID(sv) == DI_DOCONCURRENT)
+      STD_BLKSYM(std) = DI_CONC_BLOCK_SYM(sv);
     /*
      * Compute the values for index variables in the collapsed do loops in
      * the order from inner to outer.
@@ -5778,19 +6176,20 @@ collapse_index(DOINFO *dd)
 void
 do_end(DOINFO *doinfo)
 {
-  int ast, orig_doif, par_doif, std, symi;
+  int ast, i, orig_doif, par_doif, std, symi, astlab;
+  SPTR block_sptr, lab, sptr;
 
   orig_doif = sem.doif_depth; // original loop index
 
   // Close do concurrent mask.
+  // Don't emit scn.currlab here.  (Don't use add_stmt.)
   if (DI_ID(orig_doif) == DI_DOCONCURRENT && DI_CONC_MASK_STD(orig_doif))
-    // Don't emit scn.currlab here.  (Don't use add_stmt.)
-    (void)add_stmt_after(mk_stmt(A_ENDIF, 0), STD_PREV(0));
+    (void)add_stmt_after(mk_stmt(A_ENDIF, 0), STD_LAST);
 
   // Loop body is done; emit loop cycle label.
+  // Don't emit scn.currlab here.  (Don't use add_stmt.)
   if (DI_CYCLE_LABEL(orig_doif)) {
-    // Don't emit scn.currlab here.  (Don't use add_stmt.)
-    std = add_stmt_after(mk_stmt(A_CONTINUE, 0), STD_PREV(0));
+    std = add_stmt_after(mk_stmt(A_CONTINUE, 0), STD_LAST);
     STD_LABEL(std) = DI_CYCLE_LABEL(orig_doif);
     DEFDP(DI_CYCLE_LABEL(orig_doif), 1);
   }
@@ -5798,14 +6197,38 @@ do_end(DOINFO *doinfo)
   // Finish do concurrent inner loop processing and move to the outermost loop.
   if (DI_ID(orig_doif) == DI_DOCONCURRENT) {
     check_doconcurrent(orig_doif); // innermost loop has constraint check info
-    for (symi = DI_CONC_SYMS(orig_doif); symi; symi = SYMI_NEXT(symi)) {
-      SPTR sptr = SYMI_SPTR(symi);
-      if (sptr >= DI_CONC_SYMAVL(orig_doif)) // sptr may be SHARED
-        HIDDENP(sptr, 1);
+    std = add_stmt_after(mk_stmt(A_CONTINUE, 0), STD_LAST);
+    STD_LINENO(std) = gbl.lineno;
+    STD_LABEL(std) = lab = getlab();
+    RFCNTI(lab);
+    VOLP(lab, true);
+    block_sptr = DI_CONC_BLOCK_SYM(orig_doif);
+    ENDLINEP(block_sptr, gbl.lineno);
+    ENDLABP(block_sptr, lab);
+    for (i = DI_CONC_COUNT(orig_doif), symi = DI_CONC_SYMS(orig_doif); i;
+         --i, symi = SYMI_NEXT(symi)) {
+      sptr = SYMI_SPTR(symi);
+      HIDDENP(sptr, 1); // do concurrent index construct var
     }
+    for (++sptr; sptr < stb.stg_avail; ++sptr)
+      switch (STYPEG(sptr)) {
+      case ST_UNKNOWN:
+      case ST_IDENT:
+      case ST_VAR:
+      case ST_ARRAY:
+        if (SAVEG(sptr))
+          break;
+        if (!CCSYMG(sptr) && !HCCSYMG(sptr))
+          DCLCHK(sptr);
+        HIDDENP(sptr, 1); // do concurrent non-index construct var
+        if (ENCLFUNCG(sptr) == 0)
+          ENCLFUNCP(sptr, block_sptr);
+      }
     for (; DI_CONC_COUNT(orig_doif) > 1; --orig_doif)
-      if (!DI_DOINFO(orig_doif)->collapse)
-        (void)add_stmt(mk_stmt(A_ENDDO, 0));
+      if (!DI_DOINFO(orig_doif)->collapse) {
+        std = add_stmt(mk_stmt(A_ENDDO, 0));
+        STD_BLKSYM(std) = block_sptr;
+      }
     doinfo = DI_DOINFO(orig_doif);
     sem.doif_depth = orig_doif;
   }
@@ -5945,6 +6368,11 @@ do_end(DOINFO *doinfo)
   case DI_CUFKERNEL:
     (void)add_stmt(mk_stmt(A_ENDDO, 0));
     sem.close_pdo = TRUE;
+    /* Pop the inserted new symbol for the induction var*/
+    if (flg.smp && (SCG(doinfo->index_var) != SC_PRIVATE)) {
+      if (DI_DO_POPINDEX(sem.doif_depth) > SPTR_NULL)
+        pop_sym(DI_DO_POPINDEX(sem.doif_depth));
+    }
     break;
 
   default:
@@ -5955,12 +6383,20 @@ do_end(DOINFO *doinfo)
 
     switch (DI_ID(orig_doif)) {
     case DI_DO:
-    case DI_DOCONCURRENT:
       (void)add_stmt(mk_stmt(A_ENDDO, 0));
+      break;
+    case DI_DOCONCURRENT:
+      std = add_stmt(mk_stmt(A_ENDDO, 0));
+      STD_BLKSYM(std) = block_sptr;
       break;
     case DI_DOWHILE:
       ast = mk_stmt(A_GOTO, 0);
-      A_L1P(ast, mk_label(DI_TOP_LABEL(orig_doif)));
+      // Do not place mk_label inside A_L1P(ast, mk_label(...))
+      // due to undefined behavior of C compiler for evaluation order
+      // between the calculation of the address of the target of an
+      // assignment and the computation of the value being assigned.
+      astlab = mk_label(DI_TOP_LABEL(orig_doif));
+      A_L1P(ast, astlab);
       RFCNTI(DI_TOP_LABEL(orig_doif));
       (void)add_stmt(ast);
       (void)add_stmt(mk_stmt(A_ENDIF, 0));
@@ -6115,7 +6551,7 @@ _xtok(INT conval1, BIGINT64 count, int dtype)
   SNGL temp, result;
   SNGL real1, realrs, imag1, imagrs;
   SNGL realpv, temp1;
-  INT64 inum1, ires;
+  DBLINT64 inum1, ires;
   int overr;
   UINT uval, uoldval;
 

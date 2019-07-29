@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1997-2018, NVIDIA CORPORATION.  All rights reserved.
+ * Copyright (c) 1997-2019, NVIDIA CORPORATION.  All rights reserved.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -192,8 +192,8 @@ plower(char *fmt, ...)
       ++pcount;
       break;
     case 'r': /* may be zero */
-      if (d > 0 && d < lowersym.oldsymavl && lower_symbol_replace[d]) {
-        d = lower_symbol_replace[d];
+      if (d > 0 && LOWER_SYMBOL_REPLACE(d)) {
+        d = LOWER_SYMBOL_REPLACE(d);
       }
 #if DEBUG
       if (DBGBIT(47, 8)) {
@@ -222,8 +222,8 @@ plower(char *fmt, ...)
       ++pcount;
       break;
     case 's':
-      if (d > 0 && d < lowersym.oldsymavl && lower_symbol_replace[d]) {
-        d = lower_symbol_replace[d];
+      if (d > 0 && LOWER_SYMBOL_REPLACE(d)) {
+        d = LOWER_SYMBOL_REPLACE(d);
       }
 #if DEBUG
       if (DBGBIT(47, 8)) {
@@ -246,8 +246,8 @@ plower(char *fmt, ...)
       ++pcount;
       break;
     case 'S':
-      if (d > 0 && d < lowersym.oldsymavl && lower_symbol_replace[d]) {
-        d = lower_symbol_replace[d];
+      if (d > 0 && LOWER_SYMBOL_REPLACE(d)) {
+        d = LOWER_SYMBOL_REPLACE(d);
       }
 #if DEBUG
       if (DBGBIT(47, 8)) {
@@ -289,8 +289,8 @@ plower(char *fmt, ...)
       ++pcount;
       break;
     case 'C':
-      if (d > 0 && d < lowersym.oldsymavl && lower_symbol_replace[d]) {
-        d = lower_symbol_replace[d];
+      if (d > 0 && LOWER_SYMBOL_REPLACE(d)) {
+        d = LOWER_SYMBOL_REPLACE(d);
       }
       if (d > 0 && d < stb.stg_avail) {
 #if DEBUG
@@ -804,7 +804,7 @@ fill_midnum(int sptr)
 static int
 intermediate_members(int base, int parent, int sptr)
 {
-  int p = lower_member_parent[sptr];
+  int p = LOWER_MEMBER_PARENT(sptr);
   if (p) {
     int a;
     switch (A_TYPEG(parent)) {
@@ -983,7 +983,6 @@ handle_arguments(int ast, int symfunc, int via_ptr)
   int unlpoly; /* CLASS(*) */
 
   bool procDummyNeedsDesc = proc_arg_needs_proc_desc(symfunc);
-
   switch (A_TYPEG(A_LOPG(ast))) {
   case A_ID:
   case A_LABEL:
@@ -1195,6 +1194,24 @@ handle_arguments(int ast, int symfunc, int via_ptr)
           lower_argument[i] = plower("oii", "PARG", ilm, ilm2);
         }
         lower_disable_ptr_chk = 0;
+        }else if(POINTERG(sptr) && A_TYPEG(a) == A_ID && A_PTRREFG(a)) {
+
+        /* Special handling of pointer to pointer arguments in runtime
+         * routines.
+         */
+        
+        lower_expression(a);
+        lower_disable_ptr_chk = 1;
+        if (DTY(DTYPEG(sptr)) == TY_PTR) {
+          ilm = lower_target(a);
+        } else {
+          if (MIDNUMG(sptr) == 0) {
+            ilm = lower_base(a);
+          } else {
+            ilm = lower_replacement(a, MIDNUMG(sptr));
+          }
+        }
+        lower_argument[i] = ilm;
       } else {
         lower_argument[i] = lower_base(a);
       }
@@ -1439,7 +1456,7 @@ handle_arguments(int ast, int symfunc, int via_ptr)
     }
     if (a && A_TYPEG(a) != A_LABEL) {
       fix_array_fields(A_NDTYPEG(a));
-      if (param && OPTARGG(param) && a == astb.ptr0) {
+      if (a == astb.ptr0 && param && OPTARGG(param)) {
         plower("Am", lower_argument[i], DTYPEG(param));
       } else {
         plower("am", lower_argument[i], A_NDTYPEG(a));
@@ -1990,6 +2007,7 @@ lower_do_stmt(int std, int ast, int lineno, int label)
   int doinitilm, doendilm, doincilm, dotripilm, lop, lilm, ilm;
   int dtype, schedtype;
   int hack, rilm, dest, src;
+
   plast = A_LASTVALG(ast);
   if (!plast) {
     plast = stb.i0;
@@ -2001,6 +2019,8 @@ lower_do_stmt(int std, int ast, int lineno, int label)
   /* need two labels, for loop top and zero-trip exit.
    * need a temporary to hold trip count */
   dotop = lower_lab();
+  if (STD_BLKSYM(std))
+    STARTLABP(STD_BLKSYM(std), dotop); // overwrite any non-innermost loop label
   dobottom = lower_lab();
   ++lowersym.docount;
   lop = A_DOVARG(ast);
@@ -2028,17 +2048,10 @@ lower_do_stmt(int std, int ast, int lineno, int label)
   /* KMPC only permits 4 or 8 byte loop inductions */
   if (A_TYPEG(ast) == A_MP_PDO)
     dtype = (size_of(dtype) <= 4) ? DT_INT : DT_INT8;
-  if (XBIT(68, 0x1)) {
-    if (dtype == DT_INT8)
-      dotrip = dotemp('Y', DT_INT8, std);
-    else
-      dotrip = dotemp('Y', DT_INT4, std);
-  } else {
-    if (XBIT(49, 0x100) && dtype == DT_INT8)
-      dotrip = dotemp('Y', DT_INT8, std);
-    else
-      dotrip = dotemp('Y', DT_INT4, std);
-  }
+  if (dtype == DT_INT8 && (XBIT(49, 0x100) || XBIT(68, 0x1)))
+    dotrip = dotemp(STD_BLKSYM(std)?'C':'Y', DT_INT8, std);
+  else
+    dotrip = dotemp(STD_BLKSYM(std)?'C':'Y', DT_INT4, std);
   PTRSAFEP(dotrip, 1);
   doinitast = A_M1G(ast);
   doendast = A_M2G(ast);
@@ -2853,6 +2866,68 @@ lower_omp_atomic_capture(int ast, int lineno)
   plower("oiinnn", "MP_ATOMICCAPTURE", lilm, rilm, mem_order, aop, flag);
 }
 
+static void
+lower_omp_target_tripcount(int ast, int std)
+{
+  int lop,dovar,doinitast,doendast,dtype,doincast, doinc, doinitilm, doendilm, doincilm, dotrip;
+  lop = A_DOVARG(ast);
+
+  if (A_TYPEG(lop) != A_ID) {
+    lerror("unsupported DO variable");
+    return;
+  }
+  dovar = A_SPTRG(lop);
+  dtype = DTYPEG(dovar);
+  /* treat logical like integer */
+  switch (dtype) {
+    case DT_BLOG:
+      dtype = DT_BINT;
+      break;
+    case DT_SLOG:
+      dtype = DT_SINT;
+      break;
+    case DT_LOG4:
+      dtype = DT_INT4;
+      break;
+    case DT_LOG8:
+      dtype = DT_INT8;
+      break;
+  }
+  /* KMPC only permits 4 or 8 byte loop inductions */
+  if (A_TYPEG(ast) == A_MP_PDO)
+    dtype = (size_of(dtype) <= 4) ? DT_INT : DT_INT8;
+  if (XBIT(68, 0x1)) {
+    if (dtype == DT_INT8)
+      dotrip = dotemp('T', DT_INT8, std);
+    else
+      dotrip = dotemp('T', DT_INT4, std);
+  } else {
+    if (XBIT(49, 0x100) && dtype == DT_INT8)
+      dotrip = dotemp('T', DT_INT8, std);
+    else
+      dotrip = dotemp('T', DT_INT4, std);
+  }
+  PTRSAFEP(dotrip, 1);
+  doinitast = A_M1G(ast);
+  doendast = A_M2G(ast);
+  doincast = A_M3G(ast);
+
+  lower_expression(doinitast);
+  doinitilm = lower_ilm(doinitast);
+  lower_expression(doendast);
+  doendilm = lower_ilm(doendast);
+  lower_expression(doincast);
+  doincilm = lower_ilm(doincast);
+
+  doinc = dotemp('i', dtype, std);
+
+  compute_dotrip(std, FALSE, doinitilm, doendilm,
+                             doinc, doincilm, dtype, dotrip);
+
+  plower("oS", "MP_TARGETLOOPTRIPCOUNT", dotrip);
+  return;
+}
+
 void
 lower_stmt(int std, int ast, int lineno, int label)
 {
@@ -3012,8 +3087,7 @@ lower_stmt(int std, int ast, int lineno, int label)
               src_dsc_ast = 0;
               if (src_sptr && STYPEG(src_sptr) != ST_MEMBER) {
                 if (!ALLOCDESCG(src_sptr) && !CLASSG(src_sptr)) {
-                  int dty = DTYPEG(src_sptr);
-                  src_dsc = get_static_type_descriptor(DTY(dty + 3));
+                  src_dsc = get_static_type_descriptor(DTY(src_dtype + 3));
                 } else {
                   src_dsc = get_type_descr_arg(gbl.currsub, src_sptr);
                 }
@@ -3820,7 +3894,7 @@ lower_stmt(int std, int ast, int lineno, int label)
       count = A_ARGCNTG(ast);
       args = A_ARGSG(ast);
       lop2 = lop = ARGT_ARG(args, 0);
-      rop = ARGT_ARG(args, 2);
+      rop = ARGT_ARG(args, count > 2 ? 2 : 1);
     again:
       if (A_TYPEG(lop) == A_ID) {
         sym = A_SPTRG(lop);
@@ -5139,10 +5213,67 @@ lower_stmt(int std, int ast, int lineno, int label)
     } else {
       ilm = plower("oS", "ICON", lowersym.intone);
     }
+
+    if(flg.omptarget) {
+      int ilm_numteams=0, ilm_numthreads=0, ilm_threadlimit=0;
+      if(A_NTEAMSG(ast)) {
+        lower_expression(A_NTEAMSG(ast));
+        ilm_numteams = lower_conv(A_NTEAMSG(ast), DT_INT);
+      } else {
+        ilm_numteams = plower("oS", "ICON", lowersym.intzero);
+      }
+      if(A_THRLIMITG(ast)) {
+        lower_expression(A_THRLIMITG(ast));
+        ilm_threadlimit = lower_conv(A_THRLIMITG(ast), DT_INT);
+      } else {
+        ilm_threadlimit = plower("oS", "ICON", lowersym.intzero);
+      }
+      if(A_NPARG(ast)) {
+        lower_expression(A_NPARG(ast));
+        ilm_numthreads = lower_conv(A_NPARG(ast), DT_INT);
+      } else {
+        ilm_numthreads = plower("oS", "ICON", lowersym.intzero);
+      }
+      if(A_LOOPTRIPCOUNTG(ast) != 0) {
+        lower_omp_target_tripcount(A_LOOPTRIPCOUNTG(ast), std);
+      }
+      plower("oniii", "MP_TARGETMODE", A_COMBINEDTYPEG(ast), ilm_numteams,
+          ilm_threadlimit, ilm_numthreads);
+    }
+
+    //pragmatype specifies combined type of target.
     ilm = plower("oin", "BTARGET", ilm, flag);
     lower_end_stmt(std);
     break;
-
+  case A_MP_MAP:
+      lower_start_stmt(lineno, label, TRUE, std);
+      lop = A_LOPG(ast);
+      lower_expression(lop);
+      //todo ompaccel need to pass size and base
+      flag = A_PRAGMATYPEG(STD_AST(std));
+      plower("oin", "MP_MAP", lower_base(lop), flag);
+      lower_end_stmt(std);
+    break;
+  case A_MP_BREDUCTION:
+    lower_start_stmt(lineno, label, TRUE, std);
+    ilm = plower("o", "MP_BREDUCTION");
+    lower_end_stmt(std);
+    break;
+  case A_MP_EREDUCTION:
+    lower_start_stmt(lineno, label, TRUE, std);
+    ilm = plower("o", "MP_EREDUCTION");
+    lower_end_stmt(std);
+    break;
+  case A_MP_REDUCTIONITEM:
+    lower_start_stmt(lineno, label, TRUE, std);
+    ilm = plower("ossn", "MP_REDUCTIONITEM", A_SHSYMG(ast), A_PRVSYMG(ast), A_REDOPRG(ast));
+    lower_end_stmt(std);
+    break;
+  case A_MP_EMAP:
+    lower_start_stmt(lineno, label, TRUE, std);
+    ilm = plower("o", "MP_EMAP");
+    lower_end_stmt(std);
+    break;
   case A_MP_ENDTARGET:
     lower_start_stmt(lineno, label, TRUE, std);
     ilm = plower("o", "ETARGET");
@@ -5431,8 +5562,8 @@ lower_sptr(int sptr, int pointerval)
 {
   int base;
   assert(sptr > NOSYM, "lower_sptr: bad sptr", sptr, ERR_Severe);
-  if (sptr < lowersym.oldsymavl && lower_symbol_replace[sptr]) {
-    sptr = lower_symbol_replace[sptr];
+  if (LOWER_SYMBOL_REPLACE(sptr)) {
+    sptr = LOWER_SYMBOL_REPLACE(sptr);
   }
   lower_visit_symbol(sptr);
   if (SCG(sptr) == SC_BASED) {

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1994-2018, NVIDIA CORPORATION.  All rights reserved.
+ * Copyright (c) 1994-2019, NVIDIA CORPORATION.  All rights reserved.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -1799,12 +1799,14 @@ rewrite_func_ast(int func_ast, int func_args, int lhs)
   int temp_arr;
   int newargt;
   int srcarray;
+  int rank;
   int retval = 0;
   int ast;
   int nargs;
   int mask;
   int value;
   LOGICAL back;
+  int is_back_true;
   int vector;
   FtnRtlEnum rtlRtn;
   char *root;
@@ -1966,7 +1968,35 @@ rewrite_func_ast(int func_ast, int func_args, int lhs)
       ARGT_ARG(newargt, 3) = dim;
     }
     goto ret_new;
+  case I_NORM2:     /* norm2(array, [dim]) */
+    srcarray = ARGT_ARG(func_args, 0);
+    dim = ARGT_ARG(func_args, 1);
+    rank = get_ast_rank(srcarray);
+    shape = dim ? A_SHAPEG(srcarray) : 0;
 
+    // If dim is supplied for a one dimensional array, result is still a scalar.
+    shape  = (shape && (rank == 1)) ? 0 : shape;
+
+    if (dim == 0) {
+      rtlRtn = RTE_norm2_nodim;
+      nargs = 3;
+    } else {
+      rtlRtn = RTE_norm2;
+      nargs = 4;
+    }
+    newargt = mk_argt(nargs);
+    ARGT_ARG(newargt, 1) = srcarray;
+
+    if (!flg.ieee) { // fast. Currently also mapped to relaxed
+      ARGT_ARG(newargt, 2) = mk_cval(1, DT_INT4);
+    } else  { // Precise
+      ARGT_ARG(newargt, 2) = mk_cval(2, DT_INT4);
+    }
+
+    if (nargs == 4) {
+      ARGT_ARG(newargt, 3) = dim;      
+    }
+    goto ret_new;
   case I_MAXVAL: /* maxval(array, [dim, mask]) */
   case I_MINVAL: /* minval(array, [dim, mask]) */
     mask = ARGT_ARG(func_args, 2);
@@ -2199,15 +2229,21 @@ rewrite_func_ast(int func_ast, int func_args, int lhs)
   case I_MAXLOC: /* maxloc(array, [dim, mask]) */
   case I_MINLOC: /* minloc(array, [dim, mask]) */
     srcarray = ARGT_ARG(func_args, 0);
+    back = ARGT_ARG(func_args, 3);
+    is_back_true = get_int_cval(sym_of_ast(back));
     mask = ARGT_ARG(func_args, 2);
     mask = misalignment(srcarray, mask, arg_gbl.std);
     if (mask == 0)
       mask = mk_cval(1, DT_LOG);
     dim = ARGT_ARG(func_args, 1);
     if (dim == 0) {
-      rtlRtn = optype == I_MAXLOC ? RTE_maxlocs : RTE_minlocs;
+      if (is_back_true) {
+        rtlRtn = optype == I_MAXLOC ? RTE_maxlocs_b : RTE_minlocs_b;
+      } else {
+        rtlRtn = optype == I_MAXLOC ? RTE_maxlocs : RTE_minlocs;
+      }
       newsym = sym_mkfunc(mkRteRtnNm(rtlRtn), DT_NONE);
-      nargs = 3;
+      nargs = is_back_true ? 4 : 3;
       /* get the temp and add the necessary statements */
       temp_arr = mk_maxloc_sptr(shape, DDTG(dtype) == DT_INT8 ? DT_INT8
                                                               : astb.bnd.dtype);
@@ -2217,15 +2253,23 @@ rewrite_func_ast(int func_ast, int func_args, int lhs)
       ARGT_ARG(newargt, 0) = retval;
       ARGT_ARG(newargt, 1) = srcarray;
       ARGT_ARG(newargt, 2) = mask;
+      if (is_back_true)
+        ARGT_ARG(newargt, 3) = back;
       goto ret_call;
     } else {
       /* pghpf_minloc(result, array, mask, dim) */
-      rtlRtn = optype == I_MAXLOC ? RTE_maxloc : RTE_minloc;
-      nargs = 4;
+      if (is_back_true) {
+        rtlRtn = optype == I_MAXLOC ? RTE_maxloc_b : RTE_minloc_b;
+      } else {
+        rtlRtn = optype == I_MAXLOC ? RTE_maxloc : RTE_minloc;
+      }
+      nargs = is_back_true ? 5 : 4;
       newargt = mk_argt(nargs);
       ARGT_ARG(newargt, 1) = srcarray;
       ARGT_ARG(newargt, 2) = mask;
       ARGT_ARG(newargt, 3) = dim;
+      if (is_back_true)
+        ARGT_ARG(newargt, 4) = back;
       goto ret_new;
     }
   case I_PACK: /* pack(array, mask, [vector]) */
@@ -3190,6 +3234,12 @@ leave_arg(int ast, int i, int *parg, int lc)
       astdim = ARGT_ARG(args, 1);
       mask = ARGT_ARG(args, 2);
       break;
+    case I_NORM2:
+      if (i != 0)
+        return 0;
+      args = A_ARGSG(ast);
+      astdim = ARGT_ARG(args, 1);
+      break;
     case I_DOT_PRODUCT:
       if (i > 1)
         return 0;
@@ -4135,6 +4185,13 @@ rewrite_calls(void)
       a = rewrite_sub_ast(A_ROPG(ast), 0);
       A_ROPP(ast, a);
       break;
+    case A_MP_EMAP:
+    case A_MP_MAP:
+    case A_MP_TARGETLOOPTRIPCOUNT:
+    case A_MP_EREDUCTION:
+    case A_MP_BREDUCTION:
+    case A_MP_REDUCTIONITEM:
+      break;
     default:
       interr("rewrite_subroutine: unknown stmt found", ast, 4);
       break;
@@ -4242,6 +4299,7 @@ mk_result_sptr(int func_ast, int func_args, int *subscr, int elem_dty, int lhs,
   case I_MINVAL:
   case I_PRODUCT:
   case I_SUM:
+  case I_NORM2:
     arg = ARGT_ARG(func_args, 0);
     /* first arg with dimension removed */
     dim = A_OPTYPEG(func_ast) == I_FINDLOC ? ARGT_ARG(func_args, 2)

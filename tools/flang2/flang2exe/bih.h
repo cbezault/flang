@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1993-2018, NVIDIA CORPORATION.  All rights reserved.
+ * Copyright (c) 1993-2019, NVIDIA CORPORATION.  All rights reserved.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -107,7 +107,7 @@ typedef struct {
       unsigned midiom : 1;     /* bih is head of a mem-idiom collapsed loop */
       unsigned accdata : 1;    /* bih is head of an accelerator data region */
       unsigned endaccdata : 1; /* bih is tail of an accelerator data region */
-      unsigned mark2 : 1;
+      unsigned mark2 : 1;      /* bih is reachable and not dead, if set */
       unsigned mark3 : 1;
 
       unsigned kernel : 1;     /* bih is head of a cuda kernel */
@@ -123,7 +123,8 @@ typedef struct {
       unsigned rpct : 1;       /* block contains RPCT altcode or the RPCT
                                 *   no-conflict loop */
       unsigned rpct_confl : 1; /* block contains the RPCT conflict loop */
-      unsigned fill : 2;
+      unsigned rt_guarded : 1; /* block contains runtime guarded loop */
+      unsigned doconc : 1;     /* bih is the head of a do concurrent loop */
     } bits;
   } flags2;
   int lpcntFrom;  /* When a loop count temp is created, record the induction
@@ -223,6 +224,8 @@ typedef struct {
 #define BIH_MIDIOM(i) bihb.stg_base[i].flags2.bits.midiom
 #define BIH_RPCT(i) bihb.stg_base[i].flags2.bits.rpct
 #define BIH_RPCT_CONFL(i) bihb.stg_base[i].flags2.bits.rpct_confl
+#define BIH_RT_GUARDED(i) bihb.stg_base[i].flags2.bits.rt_guarded
+#define BIH_DOCONC(i) bihb.stg_base[i].flags2.bits.doconc
 
 #define BIH_ASSN(i) bihb.stg_base[i].assn
 #define BIH_LPCNTFROM(i) bihb.stg_base[i].lpcntFrom

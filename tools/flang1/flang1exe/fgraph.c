@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1994-2018, NVIDIA CORPORATION.  All rights reserved.
+ * Copyright (c) 1994-2019, NVIDIA CORPORATION.  All rights reserved.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -313,7 +313,7 @@ flowgraph(void)
         zerotrip = TRUE; /* do loop may be zero trip */
         switch (A_TYPEG(CNTL_AST(cntl.top))) {
           int m1, m2, m3;
-          INT64 inum1, inum2;
+          DBLINT64 inum1, inum2;
         case A_DO:
         case A_MP_PDO:
           m1 = A_M1G(CNTL_AST(cntl.top));
@@ -969,7 +969,7 @@ cr_block(int std)
   FG_MASTER(expb.curfg) = expb.master;
   FG_ATOMIC(expb.curfg) = expb.atomic;
   FG_CS(expb.curfg) = expb.cs;
-  FG_PAR(expb.curfg) = expb.par_cnt > 0;
+  FG_PAR(expb.curfg) = expb.par_cnt;
   FG_PARSECT(expb.curfg) = expb.parsect;
   FG_TASK(expb.curfg) = expb.task > 0;
   expb.curstd = std;

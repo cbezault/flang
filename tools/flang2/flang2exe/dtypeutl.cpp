@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1993-2018, NVIDIA CORPORATION.  All rights reserved.
+ * Copyright (c) 1993-2019, NVIDIA CORPORATION.  All rights reserved.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -49,7 +49,7 @@ visit_list_push(struct visit_list **list, DTYPE dtype)
   struct visit_list *newlist;
   NEW(newlist, struct visit_list, 1);
   newlist->dtype = dtype;
-  newlist->is_active = TRUE;
+  newlist->is_active = true;
   newlist->next = *list;
   *list = newlist;
 }
@@ -130,7 +130,7 @@ search_type_members(DTYPE dtype, stm_predicate_t predicate,
     /* The scan of this data type is complete. Leave it on the visited
      * list to forestall another failed pass later.
      */
-    active->is_active = FALSE;
+    active->is_active = false;
   }
   return result;
 }
@@ -185,11 +185,11 @@ no_data_components_recursive(DTYPE dtype, struct visit_list **visited)
      */
     if (DTY(DTYPEG(mem)) == TY_STRUCT) {
       if (!no_data_components_recursive(DTYPEG(mem), visited)) {
-        active->is_active = FALSE;
+        active->is_active = false;
         return false;
       }
     } else if (!CLASSG(mem) || !TBPLNKG(mem)) {
-      active->is_active = FALSE;
+      active->is_active = false;
       return false;
     }
   }
@@ -418,6 +418,7 @@ int
 alignment(DTYPE dtype)
 {
   TY_KIND ty;
+  int align_bits;
 
   switch (ty = DTY(dtype)) {
   case TY_DWORD:
@@ -460,7 +461,8 @@ alignment(DTYPE dtype)
     return dtypeinfo[ty].align;
 
   case TY_ARRAY:
-    return alignment(DTySeqTyElement(dtype));
+    align_bits = alignment(DTySeqTyElement(dtype));
+    return align_bits;
   case TY_VECT:
     return alignment(DTySeqTyElement(dtype));
 
@@ -486,9 +488,9 @@ align_unconstrained(DTYPE dtype)
 {
   int a;
 
-  constrained = FALSE;
+  constrained = false;
   a = alignment(dtype);
-  constrained = TRUE;
+  constrained = true;
   return a;
 }
 

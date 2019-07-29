@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1994-2018, NVIDIA CORPORATION.  All rights reserved.
+ * Copyright (c) 1994-2019, NVIDIA CORPORATION.  All rights reserved.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -751,19 +751,6 @@ add_p_dealloc_item(int sptr)
   sem.p_dealloc = itemp;
 }
 
-/** \brief Given an allocatable array and an explicit shape list which has been
-           deposited in the semant 'bounds' structure, generate assignments to
-           the arrays bounds temporaries, and allocate the array.  Save the id
-   ast
-           of the array for an ensuing deallocate of the array.
- */
-void
-gen_allocate_array(int arr)
-{
-  int alloc_obj = gen_defer_shape(arr, 0, arr);
-  (void)gen_alloc_dealloc(TK_ALLOCATE, alloc_obj, 0);
-  add_p_dealloc_item(arr);
-}
 
 /** \brief Generate deallocates for the temporary arrays in the sem.p_delloc
  * list.
@@ -1011,7 +998,6 @@ typedef struct {
 } _ACS;
 
 static _ACS acs;
-
 static LOGICAL _can_fold(int);
 static void constructf90(int, ACL *);
 static void _dinit_acl(ACL *, LOGICAL);
@@ -1031,6 +1017,24 @@ iexpr_op(int op)
   if (op <= sizeof(_iexpr_op) / sizeof(char *))
     return _iexpr_op[op];
   return "?N?";
+}
+
+/** \brief Given an allocatable array and an explicit shape list which has been
+           deposited in the semant 'bounds' structure, generate assignments to
+           the arrays bounds temporaries, and allocate the array.  Save the id
+   ast
+           of the array for an ensuing deallocate of the array.
+ */
+void
+gen_allocate_array(int arr)
+{
+  int alloc_obj = gen_defer_shape(arr, 0, arr);
+  if (is_deferlenchar_dtype(acs.arrtype)) {
+    get_static_descriptor(arr);
+    get_all_descriptors(arr);
+  }
+  gen_alloc_dealloc(TK_ALLOCATE, alloc_obj, 0);
+  add_p_dealloc_item(arr);
 }
 
 #if DEBUG
@@ -1491,6 +1495,9 @@ chk_constructor(ACL *aclp, DTYPE dtype)
     sem.arrdim.ndefer = 1;
     acs.is_const = FALSE;
   }
+  if (sem.gcvlen && is_deferlenchar_dtype(acs.eltype)) {
+    sem.arrdim.ndefer = 1;
+  }
   aclp->size = sem.bounds[0].upast;
 
   acs.arrtype = mk_arrdsc();
@@ -1669,6 +1676,7 @@ init_sptr_w_acl(int in_sptr, ACL *aclp)
     if (sem.arrdim.ndefer) {
       ALLOCATE_ARRAYS = 0; /* allocate for these array temps is done here */
     }
+
       sptr = acs.tmp = get_arr_temp(acs.arrtype, FALSE, FALSE, FALSE);
     ALLOCATE_ARRAYS = 1;
     if (sem.arrdim.ndefer) {
@@ -1767,13 +1775,17 @@ compute_size_ast(bool add_flag, ACL *aclp, DTYPE dtype)
 static DTYPE
 compute_size_expr(bool add_flag, ACL *aclp, DTYPE dtype)
 {
+  DTYPE dt2, dtype2;
   SST *stkp = aclp->u1.stkp;
   LOGICAL specified_dtype = dtype != 0;
-  DTYPE dt = dtype;
+  DTYPE dt = DDTG(dtype);
+  dtype2 = SST_DTYPEG(stkp);
+  dt2 = DDTG(SST_DTYPEG(stkp));
   if (!specified_dtype) {
-    dtype = SST_DTYPEG(stkp);
-    dt = DDTG(dtype);
+    dtype = dtype2;
+    dt = dt2;
   }
+
   if (acs.eltype == 0 || acs.zln) {
     int id = SST_IDG(stkp);
     if (acs.eltype != 0) {
@@ -1786,15 +1798,21 @@ compute_size_expr(bool add_flag, ACL *aclp, DTYPE dtype)
           || dtype == DT_ASSNCHAR || dtype == DT_DEFERNCHAR
       ) {
         dt = adjust_ch_length(dt, SST_ASTG(stkp));
+      } else if (dt == DT_ASSCHAR || dt == DT_DEFERCHAR
+          || dt == DT_ASSNCHAR || dt == DT_DEFERNCHAR
+      ) {
+        dt = fix_dtype(SST_SYMG(stkp), dt);
       }
     }
     /* need to change the type for the first element too */
     if (specified_dtype && acs.eltype == 0 &&
         add_flag) { /* if we're in a struct, don't do */
       if (DTY(dt) == TY_CHAR && DTY(dtype) == TY_CHAR)
-        ;
+        if (dtype2 != DT_DEFERCHAR && dtype2 != DT_DEFERNCHAR)
+          dtype = SST_DTYPEG(stkp);
       else if (DTY(dt) == TY_NCHAR && DTY(dtype) == TY_NCHAR)
-        ;
+        if (dtype2 != DT_DEFERCHAR && dtype2 != DT_DEFERNCHAR)
+          dtype = SST_DTYPEG(stkp);
       else if (DTY(dtype) == TY_ARRAY) {
         if (DDTG(dtype) != dt) {
           errsev(95);
@@ -1818,10 +1836,12 @@ compute_size_expr(bool add_flag, ACL *aclp, DTYPE dtype)
      * causes S_CONST to become S_EXPR.
      */
     if (add_flag) { /* if we're in a struct, don't do */
-      if (DTY(acs.eltype) == TY_CHAR && DTY(dtype) == TY_CHAR)
-        ;
-      else if (DTY(acs.eltype) == TY_NCHAR && DTY(dtype) == TY_NCHAR)
-        ;
+      if (DTY(dt) == TY_CHAR && DTY(dtype) == TY_CHAR)
+        if (dtype2 != DT_DEFERCHAR && dtype2 != DT_DEFERNCHAR)
+          dtype = SST_DTYPEG(stkp);
+      else if (DTY(dt) == TY_NCHAR && DTY(dtype) == TY_NCHAR)
+        if (dtype2 != DT_DEFERCHAR && dtype2 != DT_DEFERNCHAR)
+          dtype = SST_DTYPEG(stkp);
       else if (DTY(dtype) == TY_ARRAY) {
         if (!eq_dtype(DDTG(dtype), acs.eltype)) {
           errsev(95);
@@ -2328,6 +2348,9 @@ get_shape_arraydtype(int shape, int eltype)
     }
   }
 
+  if (is_deferlenchar_dtype(acs.arrtype))
+    sem.arrdim.ndefer = 1;
+
   arrtype = mk_arrdsc();
   DTY(arrtype + 1) = eltype;
   return arrtype;
@@ -2364,7 +2387,11 @@ mkexpr_assign_temp(SST *stkptr)
   /* if we have an array expression, we need to assign it to
      a temporary so that we can subscript it. */
   if (DTY(dtype = SST_DTYPEG(stkptr)) == TY_ARRAY && !simple) {
-    dtype = get_shape_arraydtype(A_SHAPEG(ast), DTY(dtype + 1));
+    if (is_deferlenchar_ast(ast)) {
+      dtype = get_shape_arraydtype(A_SHAPEG(ast), DTY(acs.arrtype + 1));
+    } else {
+      dtype = get_shape_arraydtype(A_SHAPEG(ast), DTY(dtype + 1));
+    }
     id = get_arr_temp(dtype, FALSE, FALSE, FALSE);
     if (sem.arrdim.ndefer)
       gen_allocate_array(id);
@@ -2641,6 +2668,9 @@ _constructf90(int base_id, int in_indexast, bool in_array, ACL *aclp)
       for (; mem_sptr != NOSYM; mem_sptr = SYMLKG(mem_sptr)) {
         if (!is_unl_poly(mem_sptr) && no_data_components(DTYPEG(mem_sptr)))
           continue;
+        /* skip $td */
+        if (CLASSG(mem_sptr) && DESCARRAYG(mem_sptr))
+          continue;
         if (XBIT(58, 0x10000) && POINTERG(mem_sptr) && !F90POINTERG(mem_sptr)) {
           SST *astkp;
           int aast;
@@ -2661,7 +2691,8 @@ _constructf90(int base_id, int in_indexast, bool in_array, ACL *aclp)
               mem_aclp->u1.ast = astb.i0;
             }
           }
-          if (mem_aclp->id == AC_AST && mem_aclp->dtype == DT_PTR &&
+          if (mem_aclp->id == AC_AST &&
+             (mem_aclp->dtype == DT_PTR || POINTERG(mem_sptr)) &&
               mem_aclp->u1.ast == astb.i0) {
             /* Convert this to NULL then assign ptr */
             aast = gen_null_intrin();
@@ -3058,6 +3089,12 @@ _constructf90(int base_id, int in_indexast, bool in_array, ACL *aclp)
     case AC_AST: /* default init */
       ast = aclp->u1.ast;
       dtype = A_DTYPEG(ast);
+
+      if (is_iso_cptr(dtype)) {
+        mem_sptr = DTY(dtype + 1);
+        ast = mkmember(dtype, ast, NMPTRG(mem_sptr));
+      }
+
       if (in_array) {
         dtype = DDTG(A_DTYPEG(base_id));
         dest = add_subscript(base_id, indexast, dtype);
@@ -4527,8 +4564,10 @@ rewrite_acl(ACL *aclp, DTYPE dtype, int parent_acltype)
     case AC_AST:
       wrk_aclp = construct_acl_from_ast(cur_aclp->u1.ast, cur_aclp->dtype,
                                         parent_acltype);
-      if (wrk_aclp)
+      if (wrk_aclp) {
         wrk_aclp->repeatc = cur_aclp->repeatc;
+        wrk_aclp->sptr = cur_aclp->sptr;
+      }
       break;
     case AC_IEXPR:
       wrk_aclp = cur_aclp;
@@ -6325,6 +6364,46 @@ const_eval(int ast)
       ast = ARGT_ARG(val, 0);
       val = const_eval(ast);
       return cngcon(val, A_DTYPEG(ast), DT_BINT);
+    case I_SIZE:
+      val = A_ARGSG(ast);
+      ast = ARGT_ARG(val, 0);
+      return get_int_cval(A_SPTRG(ADD_NUMELM(A_DTYPEG(ast))));
+    case I_LBOUND:
+      val = A_ARGSG(ast);
+      ast = ARGT_ARG(val, 0);
+      val = get_int_cval(A_SPTRG(ARGT_ARG(val, 1)));
+      return get_int_cval(A_SPTRG(ADD_LWAST(A_DTYPEG(ast), val - 1)));
+    case I_UBOUND:
+      val = A_ARGSG(ast);
+      ast = ARGT_ARG(val, 0);
+      val = get_int_cval(A_SPTRG(ARGT_ARG(val, 1)));
+      return get_int_cval(A_SPTRG(ADD_UPAST(A_DTYPEG(ast), val - 1)));
+    case I_MAX0:
+      {
+      int max, i, tmp;
+      val = A_ARGSG(ast);
+      max = get_int_cval(A_SPTRG(ARGT_ARG(val, 0)));
+      for (i = 1; i < A_ARGCNTG(ast); ++i) {
+        tmp = get_int_cval(A_SPTRG(ARGT_ARG(val, i)));
+        if (tmp > max) {
+          max = tmp;
+        }
+      }
+      return max;
+      }
+    case I_MIN0:
+      {
+      int min, i, tmp;
+      val = A_ARGSG(ast);
+      min = get_int_cval(A_SPTRG(ARGT_ARG(val, 0)));
+      for (i = 1; i < A_ARGCNTG(ast); ++i) {
+        tmp = get_int_cval(A_SPTRG(ARGT_ARG(val, i)));
+        if (tmp < min) {
+          min = tmp;
+        }
+      }
+      return min;
+      }
     }
     break;
   default:
@@ -7605,15 +7684,19 @@ get_ch_temp(DTYPE dtype)
   } while (dt != dtype);
 
   if (needalloc) {
+    int clen;
     ALLOCP(sptr, 1);
     /* if the length is not a constant, make it 'adjustable' */
-    if (A_ALIASG(len) == 0) {
+    if (sem.gcvlen && is_deferlenchar_dtype(dtype)) {
+      clen = ast_intr(I_LEN, astb.bnd.dtype, 1, mk_id(sptr));
+    } else if (A_ALIASG(len) == 0) {
       /* fill in CVLEN field */
       ADJLENP(sptr, 1);
       if (CVLENG(sptr) == 0) {
-        int clen;
         clen = sym_get_scalar(SYMNAME(sptr), "len", astb.bnd.dtype);
         CVLENP(sptr, clen);
+        if (SCG(sptr) == SC_DUMMY)
+          CCSYMP(clen, 1);
       }
     }
     if (DTY(dtype) == TY_ARRAY) {
@@ -7626,7 +7709,8 @@ get_ch_temp(DTYPE dtype)
           if (ADD_LWBD(dtype, d) == 0)
             ADD_LWBD(dtype, d) = astb.bnd.one;
         }
-        allocate_temp(sptr);
+        if (!sem.arrdim.ndefer || ADJLENG(sptr))
+          allocate_temp(sptr);
       }
     } else {
       allocate_temp(sptr);
@@ -7862,7 +7946,7 @@ _i4_cmp(int l, int r)
 int
 _i8_cmp(int l, int r)
 {
-  INT64 v1, v2;
+  DBLINT64 v1, v2;
 
   v1[0] = CONVAL1G(l);
   v1[1] = CONVAL2G(l);
@@ -8341,7 +8425,7 @@ eval_scale(ACL *arg, DTYPE dtype)
   ACL *rslt;
   ACL *arg2;
   INT i, conval1, conval2, conval;
-  INT64 inum1, inum2;
+  DBLINT64 inum1, inum2;
   INT e;
   DBLE dconval;
 
@@ -8421,7 +8505,7 @@ eval_merge(ACL *arg, DTYPE dtype)
 /* Compare two constant ACLs. Return x > y or x < y depending on want_greater.
  */
 static bool
-cmp_acl(DTYPE dtype, ACL *x, ACL *y, bool want_greater)
+cmp_acl(DTYPE dtype, ACL *x, ACL *y, bool want_greater, bool back)
 {
   int cmp;
   switch (DTY(dtype)) {
@@ -8432,7 +8516,11 @@ cmp_acl(DTYPE dtype, ACL *x, ACL *y, bool want_greater)
   case TY_BINT:
   case TY_SINT:
   case TY_INT:
-    cmp = x->conval > y->conval ? 1 : -1;
+    if (back && want_greater) {
+      cmp = x->conval >= y->conval ? 1 : -1;
+    } else {
+      cmp = x->conval > y->conval ? 1 : -1;
+    }
     break;
   case TY_REAL:
     cmp = xfcmp(x->conval, y->conval);
@@ -8445,7 +8533,11 @@ cmp_acl(DTYPE dtype, ACL *x, ACL *y, bool want_greater)
     interr("cmp_acl: bad dtype", dtype, ERR_Severe);
     return false;
   }
-  return want_greater ? cmp > 0 : cmp < 0;
+  if (back) {
+    return want_greater ? cmp >= 0 : cmp <= 0;
+  } else {
+    return want_greater ? cmp > 0 : cmp < 0;
+  }
 }
 
 /* An index into a Fortran array. ndims is in [1,MAXDIMS], index[] is the
@@ -8550,12 +8642,13 @@ convert_acl_dtype(ACL *head, int oldtype, int newtype)
   return head;
 }
 
-/* Evaluate {min,max}{val,loc}{elems, dim, mask).
+/* Evaluate {min,max}{val,loc}{elems, dim, mask, back).
  * index describes the shape of the array; elem_dt the type of elems.
  */
 static ACL *
 do_eval_minval_or_maxval(INDEX *index, DTYPE elem_dt, DTYPE loc_dt, ACL *elems,
-                         unsigned dim, ACL *mask, AC_INTRINSIC intrin)
+                         unsigned dim, ACL *mask, bool back,
+                         AC_INTRINSIC intrin)
 {
   unsigned ndims = index->ndims;
   unsigned i;
@@ -8597,7 +8690,7 @@ do_eval_minval_or_maxval(INDEX *index, DTYPE elem_dt, DTYPE loc_dt, ACL *elems,
         ACL *val = eval_init_expr_item(elem);
         unsigned offset = get_offset_without_dim(index, dim);
         ACL *prev_val = vals[offset];
-        if (cmp_acl(elem_dt, val, prev_val, want_max)) {
+        if (cmp_acl(elem_dt, val, prev_val, want_max, back)) {
           vals[offset] = val;
           if (dim == 0) {
             BCOPY(locs, &index->index[1], int, ndims);
@@ -8655,9 +8748,13 @@ eval_minval_or_maxval(ACL *arg, DTYPE dtype, AC_INTRINSIC intrin)
   INDEX index;
   unsigned d;
   ACL *arg2;
+  bool back = FALSE;
 
   while (arg = arg->next) {
-    if (DT_ISINT(arg->dtype)) {
+    if (DT_ISLOG(arg->dtype)) { /* back */
+      arg2 = eval_init_expr_item(arg);
+      back = arg2->conval;
+    } else if (DT_ISINT(arg->dtype)) { /* dim */
       arg2 = eval_init_expr_item(arg);
       dim = arg2->conval;
       assert(dim == arg2->conval, "DIM value must be an integer!", 0,
@@ -8690,7 +8787,7 @@ eval_minval_or_maxval(ACL *arg, DTYPE dtype, AC_INTRINSIC intrin)
     index.index[d] = 1;
   }
   return do_eval_minval_or_maxval(&index, elem_dt, loc_dtype, array->subc, dim,
-                                  mask, intrin);
+                                  mask, back, intrin);
 }
 
 /* evaluate min or max, depending on want_max flag */
@@ -8777,7 +8874,7 @@ eval_min_or_max(ACL *arg, DTYPE dtype, LOGICAL want_max)
 
     c = root;
     for (j = 0; j < nelems; j++) {
-      if (cmp_acl(dtype, wrkarg2, wrkarg1, want_max)) {
+      if (cmp_acl(dtype, wrkarg2, wrkarg1, want_max, FALSE)) {
         c->u1 = wrkarg2->u1;
         c->conval = wrkarg2->conval;
         c->dtype = wrkarg2->dtype;
@@ -10058,6 +10155,8 @@ eval_sqrt(ACL *arg, DTYPE dtype)
         error(155, 3, gbl.lineno,                                   \
               "Intrinsic not supported in initialization:", iname); \
         break;                                                      \
+      case TY_HALF:                                                 \
+        /* fallthrough to error */                                  \
       default:                                                      \
         error(155, 3, gbl.lineno,                                   \
               "Intrinsic not supported in initialization:", iname); \
@@ -10123,6 +10222,8 @@ FPINTRIN1("atan", eval_atan, xfatan, xdatan)
         error(155, 3, gbl.lineno,                                   \
               "Intrinsic not supported in initialization:", iname); \
         break;                                                      \
+      case TY_HALF:                                                 \
+        /* fallthrough to error */                                  \
       default:                                                      \
         error(155, 3, gbl.lineno,                                   \
               "Intrinsic not supported in initialization:", iname); \
@@ -10157,7 +10258,7 @@ get_const_from_ast(int ast)
       c = A_SPTRG(A_ALIASG(ast));
     }
   } else {
-    if (A_TYPEG(ast) == A_BINOP) {
+    if (A_TYPEG(ast) == A_BINOP || A_TYPEG(ast) == A_INTR) {
       return const_eval(ast);
     }
     interr("get_const_from_ast: can't get const value", 0, 3);
@@ -11335,13 +11436,6 @@ check_alloc_clauses(ITEM *list, ITEM *spec, int *srcast, int *mold_or_src)
       break;
     case TK_SOURCE:
     case TK_MOLD:
-      if (source == 0) {
-        if (list != ITEM_END && list->next != ITEM_END)
-          error(155, 3, gbl.lineno,
-                "With SOURCE or MOLD specifications, "
-                "only one item can be allocated",
-                CNULL);
-      }
       if (source == 1)
         error(155, 2, gbl.lineno, "Multiple SOURCE/MOLD specifiers", CNULL);
       source++;
@@ -11394,6 +11488,7 @@ gen_alloc_dealloc(int stmtyp, int object, ITEM *spec)
       A_M3P(ast, itemp->ast);
       break;
     case TK_SOURCE:
+    case TK_MOLD:
       A_STARTP(ast, itemp->ast);
       break;
     case TK_ALIGN:
@@ -11408,8 +11503,7 @@ gen_alloc_dealloc(int stmtyp, int object, ITEM *spec)
   /* This is for allocate statement, must set length before allocate
    * sem.gcvlen supposedly gets set only when it is character
    */
-  if ((DDTG(A_DTYPEG(object)) == DT_DEFERCHAR ||
-       DDTG(A_DTYPEG(object)) == DT_DEFERCHAR) &&
+  if (is_deferlenchar_ast(object) &&
       stmtyp == TK_ALLOCATE) {
     if (sem.gcvlen) {
       len_stmt =
@@ -13446,13 +13540,13 @@ mp_create_bscope(int reuse)
     return ast;
   }
 newscope:
-  scope_sptr = getccsym('b', sem.blksymnum++, ST_BLOCK);
+  scope_sptr  = getccssym("uplevel", sem.blksymnum++, ST_BLOCK);
   PARSYMSCTP(scope_sptr, 0);
   PARSYMSP(scope_sptr, 0);
   BLK_SCOPE_SPTR(sem.scope_level) = scope_sptr;
 
   /* create a new uplevel_sptr per outlined region */
-  uplevel_sptr = getccsym('b', sem.blksymnum++, ST_BLOCK);
+  uplevel_sptr = getccssym("uplevel", sem.blksymnum++, ST_BLOCK);
   PARSYMSCTP(uplevel_sptr, 0);
   PARSYMSP(uplevel_sptr, 0);
   PARUPLEVELP(scope_sptr, uplevel_sptr);
@@ -13497,7 +13591,7 @@ enter_lexical_block(int gen_debug)
 
   if (gen_debug) {
     if (!sptr) {
-      sptr = getccsym('b', sem.blksymnum++, ST_BLOCK);
+      sptr = getccssym("uplevel", sem.blksymnum++, ST_BLOCK);
       PARSYMSCTP(sptr, 0);
       PARSYMSP(sptr, 0);
     }

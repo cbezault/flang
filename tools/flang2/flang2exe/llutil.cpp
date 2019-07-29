@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2011-2018, NVIDIA CORPORATION.  All rights reserved.
+ * Copyright (c) 2011-2019, NVIDIA CORPORATION.  All rights reserved.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -184,7 +184,7 @@ ll_add_func_proto(int sptr, unsigned flags, int nargs, DTYPE *args)
       make_lltype_from_dtype(args[i]);
     abi->arg[1 + i].kind = LL_ARG_DIRECT;
   }
-  fty = ll_create_function_type(cpu_llvm_module, fsig, nargs, FALSE);
+  fty = ll_create_function_type(cpu_llvm_module, fsig, nargs, false);
   abi->is_fortran = true;
   abi->is_iso_c = CFUNCG(sptr);
   abi->is_pure = PUREG(sptr);
@@ -254,7 +254,7 @@ ldst_instr_flags_from_dtype_nme(DTYPE dtype, int nme)
  * Convert a basic non-integer dtype to the corresponding LL_Type in module.
  */
 static LL_Type *
-ll_convert_basic_dtype(LL_Module *module, DTYPE dtype)
+ll_convert_basic_dtype_with_addrspace(LL_Module *module, DTYPE dtype, int addrspace)
 {
   enum LL_BaseDataType basetype = LL_NOTYPE;
   LL_Type *type;
@@ -285,14 +285,23 @@ ll_convert_basic_dtype(LL_Module *module, DTYPE dtype)
     interr("ll_convert_basic_dtype: unknown data type", dtype, ERR_Fatal);
   }
 
-  type = ll_create_basic_type(module, basetype, 0);
+  type = ll_create_basic_type(module, basetype, addrspace);
 
   if (DT_ISCMPLX(dtype)) {
     LL_Type *pair[2] = {type, type};
-    type = ll_create_anon_struct_type(module, pair, 2, /*FIXME*/ TRUE);
+    type = ll_create_anon_struct_type(module, pair, 2, /*FIXME*/ true, addrspace);
   }
 
   return type;
+}
+
+/*
+ * Convert a basic non-integer dtype to the corresponding LL_Type in module.
+ */
+static LL_Type *
+ll_convert_basic_dtype(LL_Module *module, DTYPE dtype)
+{
+  return ll_convert_basic_dtype_with_addrspace(module, dtype, LL_AddrSp_Default);
 }
 
 #if defined(TARGET_LLVM_X8664)
@@ -339,7 +348,7 @@ static LL_Type *
 ll_convert_func_dtype(LL_Module *module, DTYPE dtype)
 {
   LL_Type *ret_type = ll_convert_dtype(module, dtype);
-  return ll_create_function_type(module, &ret_type, 0, TRUE);
+  return ll_create_function_type(module, &ret_type, 0, true);
 }
 
 /**
@@ -358,7 +367,7 @@ ll_convert_iface_sptr(LL_Module *module, SPTR iface_sptr)
     gblsym = find_ag(get_llvm_name(iface_sptr));
   else {
     if (!(gblsym = find_ag(get_llvm_ifacenm(iface_sptr))))
-      gblsym = (SPTR) local_funcptr_sptr_to_gblsym(iface_sptr); // ???
+      gblsym = local_funcptr_sptr_to_gblsym(iface_sptr);
   }
   assert(gblsym, "ll_convert_iface_sptr: No gblsym found", iface_sptr, ERR_Fatal);
 
@@ -375,7 +384,7 @@ ll_convert_iface_sptr(LL_Module *module, SPTR iface_sptr)
     args[i] = llt;
   }
 
-  res = ll_create_function_type(module, args, n_args, FALSE);
+  res = ll_create_function_type(module, args, n_args, false);
   free(args);
   return res;
 }
@@ -392,7 +401,7 @@ ll_convert_iface_sptr(LL_Module *module, SPTR iface_sptr)
  * Padding will be added to make the size of the new struct size_bytes, unless
  * size_bytes is -1 which is ignored.
  */
-static void
+void
 layout_struct_body(LL_Module *module, LL_Type *struct_type, int member_sptr,
                    ISZ_T size_bytes)
 {
@@ -533,7 +542,7 @@ ll_convert_struct_dtype(LL_Module *module, DTYPE dtype)
 
   /* Was this struct converted previously? Named structs are indexed by dtype.
    */
-  old_type = ll_get_struct_type(module, dtype, FALSE);
+  old_type = ll_get_struct_type(module, dtype, false);
   if (old_type)
     return old_type;
 
@@ -549,10 +558,10 @@ ll_convert_struct_dtype(LL_Module *module, DTYPE dtype)
    * ll_create_named_struct_type() will ensure a unique type name.
    */
   if (tag_sptr)
-    new_type = ll_create_named_struct_type(module, dtype, TRUE, "%s.%s", prefix,
+    new_type = ll_create_named_struct_type(module, dtype, true, "%s.%s", prefix,
                                            SYMNAME(tag_sptr));
   else
-    new_type = ll_create_named_struct_type(module, dtype, TRUE, "a%s.dt%d",
+    new_type = ll_create_named_struct_type(module, dtype, true, "a%s.dt%d",
                                            prefix, dtype);
 
 /* Make sure that the old-style struct definition exists. For now this is
@@ -578,7 +587,7 @@ ll_convert_struct_dtype(LL_Module *module, DTYPE dtype)
  * This routine obtains the length information via the array descriptor.
  */
 LL_Type *
-ll_convert_array_dtype(LL_Module *module, DTYPE dtype)
+ll_convert_array_dtype(LL_Module *module, DTYPE dtype, int addrspace)
 {
   int len;
   ADSC *ad;
@@ -596,7 +605,7 @@ ll_convert_array_dtype(LL_Module *module, DTYPE dtype)
       /* Create nested LLVM arrays. */
       int i;
       for (i = 0; i < numdim; i++)
-        type = ll_get_array_type(type, get_dim_size(ad, i), 0);
+        type = ll_get_array_type(type, get_dim_size(ad, i), addrspace);
       return type;
     }
 
@@ -626,11 +635,10 @@ ll_convert_array_dtype(LL_Module *module, DTYPE dtype)
   return ll_get_array_type(type, len, 0);
 }
 
-/**
- * \brief Convert any kind of dtype to an LLVM type.
- */
-LL_Type *
-ll_convert_dtype(LL_Module *module, DTYPE dtype)
+
+
+static LL_Type *
+convert_dtype(LL_Module *module, DTYPE dtype, int addrspace)
 {
   LL_Type *subtype;
   DTYPE dt;
@@ -640,30 +648,30 @@ ll_convert_dtype(LL_Module *module, DTYPE dtype)
   case TY_NONE:
   case TY_ANY:
   case TY_NUMERIC:
-    return ll_create_basic_type(module, LL_VOID, 0);
+    return ll_create_basic_type(module, LL_VOID, addrspace);
 
   case TY_PTR:
     dt = DTySeqTyElement(dtype);
     if (DTY(dt) == TY_PROC)
-      subtype = ll_create_basic_type(module, LL_I8, 0);
+      subtype = ll_create_basic_type(module, LL_I8, addrspace);
     else
-      subtype = ll_convert_dtype(module, DTySeqTyElement(dtype));
+      subtype = ll_convert_dtype_with_addrspace(module, DTySeqTyElement(dtype), addrspace);
     /* LLVM doesn't have void pointers. Use i8* instead. */
     if (subtype->data_type == LL_VOID)
-      subtype = ll_create_basic_type(module, LL_I8, 0);
+      subtype = ll_create_basic_type(module, LL_I8, addrspace);
     return ll_get_pointer_type(subtype);
 
   case TY_CHAR:
   case TY_NCHAR:
   case TY_ARRAY:
-    return ll_convert_array_dtype(module, dtype);
+    return ll_convert_array_dtype(module, dtype, addrspace);
 
   case TY_STRUCT:
   case TY_UNION:
     return ll_convert_struct_dtype(module, dtype);
 
   case TY_VECT:
-    subtype = ll_convert_dtype(module, DTySeqTyElement(dtype));
+    subtype = ll_convert_dtype_with_addrspace(module, DTySeqTyElement(dtype), addrspace);
     return ll_get_vector_type(subtype, DTyVecLength(dtype));
 
 #if defined(TARGET_LLVM_X8664)
@@ -674,16 +682,34 @@ ll_convert_dtype(LL_Module *module, DTYPE dtype)
 #endif
   }
   if (DT_ISINT(dtype))
-    return ll_create_int_type(module, 8 * size_of(dtype));
+    return ll_create_int_type_with_addrspace(module, 8 * size_of(dtype), addrspace);
 
   if (DT_ISBASIC(dtype))
-    return ll_convert_basic_dtype(module, dtype);
+    return ll_convert_basic_dtype_with_addrspace(module, dtype, addrspace);
 
   interr("ll_convert_dtype: unhandled dtype", dtype, ERR_Fatal);
   return NULL;
 }
 
-static int
+/**
+ * \brief Convert any kind of dtype to an LLVM type.
+ */
+LL_Type *
+ll_convert_dtype(LL_Module *module, DTYPE dtype)
+{
+  return convert_dtype(module, dtype, 0);
+}
+
+/**
+ * \brief Convert any kind of dtype to an LLVM type with address space.
+ */
+LL_Type *
+ll_convert_dtype_with_addrspace(LL_Module *module, DTYPE dtype, int addrspace)
+{
+  return convert_dtype(module, dtype, addrspace);
+}
+
+bool
 llis_integral_kind(DTYPE dtype)
 {
   switch (DTY(dtype)) {
@@ -719,13 +745,13 @@ llis_integral_kind(DTYPE dtype)
   return 0;
 }
 
-INLINE static bool
+bool
 llis_pointer_kind(DTYPE dtype)
 {
   return (DTY(dtype) == TY_PTR);
 }
 
-static bool
+bool
 llis_array_kind(DTYPE dtype)
 {
   switch (DTY(dtype)) {
@@ -746,13 +772,13 @@ llis_dummied_arg(SPTR sptr)
          (llis_pointer_kind(DTYPEG(sptr)) || llis_array_kind(DTYPEG(sptr)));
 }
 
-INLINE static bool
+bool
 llis_vector_kind(DTYPE dtype)
 {
   return (DTY(dtype) == TY_VECT);
 }
 
-static bool
+bool
 llis_struct_kind(DTYPE dtype)
 {
   switch (DTY(dtype)) {
@@ -768,7 +794,7 @@ llis_struct_kind(DTYPE dtype)
   return false;
 }
 
-static bool
+bool
 llis_function_kind(DTYPE dtype)
 {
   switch (DTY(dtype)) {
@@ -787,16 +813,16 @@ is_struct_kind(DTYPE dtype, bool check_return,
   switch (DTY(dtype)) {
   case TY_STRUCT:
   case TY_UNION:
-    return TRUE;
+    return true;
   case TY_VECT:
     return return_vector_as_struct;
   case TY_CMPLX:
     return check_return;
   case TY_DCMPLX:
   case TY_CMPLX128:
-    return TRUE;
+    return true;
   }
-  return FALSE;
+  return false;
 }
 
 LL_Type *
@@ -841,13 +867,25 @@ get_dim_size(ADSC *ad, int dim)
   return dim_size;
 }
 
-LL_Type *
-make_lltype_from_dtype(DTYPE dtype)
+static LL_Type *
+lltype_from_dtype(DTYPE dtype, int addrspace)
 {
   DTYPE sdtype;
 
   sdtype = dtype;
-  return ll_convert_dtype(LLVM_getModule(), sdtype);
+  return ll_convert_dtype_with_addrspace(LLVM_getModule(), sdtype, addrspace);
+}
+
+LL_Type *
+make_lltype_from_dtype(DTYPE dtype)
+{
+  return lltype_from_dtype(dtype, 0);
+}
+
+LL_Type *
+make_lltype_from_dtype_with_addrspace(DTYPE dtype, int addrspace)
+{
+  return lltype_from_dtype(dtype, addrspace);
 }
 
 DTYPE
@@ -1102,6 +1140,7 @@ make_lltype_from_sptr(SPTR sptr)
   int len;
   int stype = 0, sc = 0;
   LL_Type *llt, *llt2;
+  int addrspace = LL_AddrSp_Default;
   ADSC *ad;
   INT d;
   int midnum = 0;
@@ -1161,9 +1200,11 @@ make_lltype_from_sptr(SPTR sptr)
     // FIXME -- do nothing? -- should flag for metadata
     DBGTRACE1("#setting type for '%s' to VOLATILE", SYMNAME(sptr));
   }
-
+#ifdef OMP_OFFLOAD_LLVM
+  addrspace = OMPACCSHMEMG(sptr) ? LL_AddrSp_NVVM_Shared : LL_AddrSp_NVVM_Generic;
+#endif
   /* Initialize llt information, and set initial type */
-  llt = ll_convert_dtype(LLVM_getModule(), sdtype);
+  llt = ll_convert_dtype_with_addrspace(LLVM_getModule(), sdtype, addrspace);
 
       if (llis_integral_kind(sdtype)) {
     /* do nothing */
@@ -1191,7 +1232,7 @@ make_lltype_from_sptr(SPTR sptr)
       atype = DT_SINT;
     else
       atype = DDTG(sdtype);
-    llt = ll_get_pointer_type(make_lltype_from_dtype(atype));
+    llt = ll_get_pointer_type(make_lltype_from_dtype_with_addrspace(atype, addrspace));
     if (DTY(sdtype) != TY_CHAR && DTY(sdtype) != TY_NCHAR) {
       ad = AD_DPTR(sdtype);
       d = AD_NUMELM(ad);
@@ -1207,7 +1248,7 @@ make_lltype_from_sptr(SPTR sptr)
     }
     if (anum > 0) {
       llt = ll_get_array_type(make_lltype_from_dtype(atype), anum,
-                              LL_AddrSp_Default);
+                              addrspace);
     }
   } else if (llis_vector_kind(sdtype)) {
     LL_Type *oldLlt = llt;
@@ -1263,6 +1304,7 @@ make_lltype_from_sptr(SPTR sptr)
     def->dtype = sdtype;
     def->sptr = sptr;
     def->ll_type = llt;
+    def->addrspace = addrspace;
     add_def(def, &llarray_def_list);
   }
   return llt;
@@ -1413,7 +1455,7 @@ set_vect3_to_size4(LL_Type *ll_type)
   switch (ll_type->data_type) {
   case LL_ARRAY:
     ll_type = ll_get_array_type(set_vect3_to_size4(ll_type->sub_types[0]),
-                                ll_type->sub_elements, LL_AddrSp_Default);
+                                ll_type->sub_elements, ll_type->addrspace);
     break;
   case LL_VECTOR:
     if (ll_type->sub_elements == 3)
@@ -1626,6 +1668,30 @@ init_output_file(void)
   ll_write_module_header(gbl.asmfil, cpu_llvm_module);
 }
 
+void
+init_gpu_output_file(void)
+{
+  if (FTN_GPU_INIT())
+    return;
+  FTN_GPU_INIT() = 1;
+#ifdef OMP_OFFLOAD_LLVM
+  if(flg.omptarget)
+    ll_write_module_header(gbl.ompaccfile, gpu_llvm_module);
+#endif
+}
+
+#ifdef OMP_OFFLOAD_LLVM
+void
+use_gpu_output_file(void)
+{
+  set_llasm_output_file(gbl.ompaccfile);
+}
+void
+use_cpu_output_file(void)
+{
+  set_llasm_output_file(gbl.asmfil);
+}
+#endif
 /**
    \brief Write size of \c LL_Type to llvm file
  */
@@ -1759,9 +1825,9 @@ print_dbg_line(LL_MDRef md)
 static bool
 LLTYPE_equiv(LL_Type *ty1, LL_Type *ty2)
 {
-  return TRUE;
+  return true;
   // FIXME - return (ty1 == ty2) || (ty1->data_type == ty2->data_type);
-  return FALSE;
+  return false;
 }
 
 static void
@@ -2204,11 +2270,11 @@ write_operand(OPERAND *p, const char *punc_string, int flags)
       if (metadata_args_need_struct())
         print_token("!{");
       if (p->flags & OPF_HIDDEN) {
-        new_op = make_arg_op((SPTR)p->val.sptr); // ???
+        new_op = make_arg_op(p->val.sptr);
         if (p->ll_type)
           new_op->ll_type = p->ll_type;
       } else {
-        new_op = make_var_op((SPTR)p->val.sptr); // ???
+        new_op = make_var_op(p->val.sptr);
         if (p->ll_type)
           new_op->ll_type = ll_get_pointer_type(p->ll_type);
       }
@@ -2328,11 +2394,11 @@ small_aggr_return(DTYPE dtype)
 {
 #if   defined(TARGET_LLVM_X8664)
   /* TO DO : to be revisited when needed */
-  return FALSE;
+  return false;
 #else
-  return FALSE;
+  return false;
 #endif
-  return FALSE;
+  return false;
 }
 
 DTYPE
@@ -2360,7 +2426,7 @@ get_return_dtype(DTYPE dtype, unsigned *flags, unsigned new_flag)
     }
   }
 #else  /* !TARGET_LLVM_ARM */
-  if (is_struct_kind(dtype, !XBIT(121, 0x400000), TRUE)) {
+  if (is_struct_kind(dtype, !XBIT(121, 0x400000), true)) {
     if (flags)
       *flags |= new_flag;
     return DT_VOID_NONE;
@@ -2521,7 +2587,7 @@ make_def(DTYPE dtype, int sptr, int rank, char *name, int flags)
   new_def->dtype = dtype;
   new_def->ll_type = NULL;
   new_def->sptr = sptr;
-  new_def->sptr = rank;
+  new_def->rank = rank;
   new_def->flags = flags;
   new_def->printed = 0;
   new_def->name = name;
@@ -2711,9 +2777,15 @@ write_def(LLDEF *def, int check_type_in_struct_def_type)
       print_nl();
       return;
     }
-    print_token("<{ ");
+    if(def->flags & LLDEF_IS_UNPACKED_STRUCT)
+      print_token("{ ");
+    else
+      print_token("<{ ");
     write_alt_field_types(def->ll_type);
-    print_token(" }>");
+    if(def->flags & LLDEF_IS_UNPACKED_STRUCT)
+      print_token("} ");
+    else
+      print_token("}> ");
   } else {
     char buf[50];
     if (def->flags & LLDEF_IS_EXTERNAL)
@@ -2779,7 +2851,7 @@ write_defs(LLDEF *def_list, int check_type_in_struct_def_type)
 
 /* Check whethere there are any definitons to write
  * @param def_list -- definition list
- * @return TRUE if there is any entry with printed==0, FALSE if all are printed
+ * @return true if there is any entry with printed==0, false if all are printed
  * or the list is empty
  */
 static bool
@@ -2787,16 +2859,16 @@ defs_to_write(LLDEF *def_list)
 {
   LLDEF *cur_def;
   if (!def_list)
-    return FALSE;
+    return false;
 
   cur_def = def_list;
   while (cur_def) {
     if (!cur_def->printed) {
-      return TRUE;
+      return true;
     }
     cur_def = cur_def->next;
   }
-  return FALSE;
+  return false;
 }
 
 /* Write structure definitions to the output LLVM file */
@@ -2978,7 +3050,10 @@ process_dtype_struct(DTYPE dtype)
   SPTR tag;
   TY_KIND dty;
   LLDEF *def;
-
+#ifdef OMP_OFFLOAD_LLVM
+  //bool is_omptarget_type = (bool)OMPACCSTRUCTG(DTY((DTYPE)(dtype + 3)));
+  bool is_omptarget_type = DTyArgNext(dtype);
+#endif
   dty = DTY(dtype);
   def = get_def(dtype, 0, 0, struct_def_list);
   if (dty != TY_UNION && dty != TY_STRUCT && def == NULL)
@@ -2997,6 +3072,10 @@ process_dtype_struct(DTYPE dtype)
   if (ZSIZEOF(dtype) == 0)
     def = make_def(dtype, 0, 0, d_name,
                    LLDEF_IS_TYPE | LLDEF_IS_EMPTY | LLDEF_IS_STRUCT);
+#ifdef OMP_OFFLOAD_LLVM
+  else if(is_omptarget_type)
+    def = make_def(dtype, 0, 0, d_name, LLDEF_IS_TYPE | LLDEF_IS_UNPACKED_STRUCT);
+#endif
   else
     def = make_def(dtype, 0, 0, d_name, LLDEF_IS_TYPE | LLDEF_IS_STRUCT);
   add_def(def, &struct_def_list);
@@ -3300,13 +3379,13 @@ add_init_subzero_consts(DTYPE dtype, OPERAND *cur_op, ISZ_T *offset,
       }
     }
     if (address < lastoffset) {
-      if (mem > NOSYM) {
+      if (mem == NOSYM || ADDRESSG(mem) == lastoffset) {
+        cur_op = add_init_pad(cur_op, lastoffset - address);
+        address = lastoffset;
+      } else {
         address = 0;
         cur_op = add_init_subzero_consts(DTYPEG(mem), cur_op, &address,
                                          lastoffset - ADDRESSG(mem));
-      } else {
-        cur_op = add_init_pad(cur_op, lastoffset - address);
-        address = lastoffset;
       }
     }
     *offset = address;
@@ -3355,12 +3434,12 @@ bool
 ll_abi_use_llvm_varargs(LL_ABI_Info *abi)
 {
   if (abi->is_varargs)
-    return TRUE;
+    return true;
 
   if (abi->missing_prototype)
     return abi->call_as_varargs;
 
-  return FALSE;
+  return false;
 }
 
 LL_Type *
@@ -3460,7 +3539,7 @@ process_ll_abi_func_ftn_mod(LL_Module *mod, SPTR func_sptr, bool update)
   }
 
   abi = ll_abi_alloc(mod, nargs);
-  abi->is_fortran = TRUE;
+  abi->is_fortran = true;
 
   /* If fortran is calling an iso-c function */
   abi->is_iso_c = CFUNCG(func_sptr);
@@ -3475,7 +3554,11 @@ process_ll_abi_func_ftn_mod(LL_Module *mod, SPTR func_sptr, bool update)
    * varargs function.  When a call to this function is made, the callsite
    * args from the JSR/GJSR will be used and we will cast away the varargs.
    */
-  if (!nargs && !INMODULEG(func_sptr) &&
+  /*
+   * IS_INTERFACE check allows abstract interfaces which have INMODULE
+   * bit set to pass through this check.
+   */
+  if (!nargs && (!INMODULEG(func_sptr) || IS_INTERFACEG(func_sptr)) &&
       (IS_FTN_PROC_PTR(func_sptr) || stype == ST_PROC)) {
     assert(IS_FTN_PROC_PTR(func_sptr) || SCG(func_sptr) == SC_EXTERN ||
                SCG(func_sptr) == SC_NONE || SCG(func_sptr) == SC_DUMMY ||
@@ -3540,7 +3623,7 @@ process_ll_abi_func_ftn_mod(LL_Module *mod, SPTR func_sptr, bool update)
        */
       if (update || gbl.currsub == func_sptr ||
           get_master_sptr() == func_sptr || gbl.entries == func_sptr) {
-        const SPTR sptr = (SPTR) get_sptr_from_argdtlist(param); // ???
+        const SPTR sptr = get_sptr_from_argdtlist(param);
         DTYPE dtype = DTYPEG(sptr);
         abi->arg[i].sptr = sptr;
         if (!dtype || is_iso_cptr(dtype))
@@ -3572,8 +3655,8 @@ ll_abi_for_missing_prototype(LL_Module *module, DTYPE return_dtype,
                              int func_sptr, int jsra_flags)
 {
   LL_ABI_Info *abi = ll_abi_alloc(module, 0);
-  abi->is_varargs = FALSE;
-  abi->missing_prototype = TRUE;
+  abi->is_varargs = false;
+  abi->missing_prototype = true;
 
   ll_abi_compute_call_conv(abi, func_sptr, jsra_flags);
 
@@ -3584,7 +3667,7 @@ ll_abi_for_missing_prototype(LL_Module *module, DTYPE return_dtype,
          return_dtype, ERR_Fatal);
   ll_abi_complete_arg_info(abi, &abi->arg[0], return_dtype);
 
-  abi->is_fortran = TRUE;
+  abi->is_fortran = true;
 
   return abi;
 }
@@ -3990,7 +4073,12 @@ get_ftn_dummy_lltype(int sptr)
     const int func_sptr = gbl.currsub;
     const int midnum = MIDNUMG(sptr);
     LL_Type *llt = make_generic_dummy_lltype();
-    if (gbl.outlined || ISTASKDUPG(GBL_CURRFUNC)) {
+#ifdef OMP_OFFLOAD_LLVM
+    const bool is_nvvm = gbl.ompaccel_isdevice && PASSBYVALG(midnum);
+#else
+    const bool is_nvvm = false;
+#endif
+    if (is_nvvm || gbl.outlined || ISTASKDUPG(GBL_CURRFUNC)) {
       const DTYPE dtype = DTYPEG(midnum ? midnum : sptr);
       llt = make_ptr_lltype(make_lltype_from_dtype(dtype));
     }

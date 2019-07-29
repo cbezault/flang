@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1994-2018, NVIDIA CORPORATION.  All rights reserved.
+ * Copyright (c) 1994-2019, NVIDIA CORPORATION.  All rights reserved.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -249,7 +249,7 @@ precedence(int ast)
 static LOGICAL
 negative_constant(int ast)
 {
-  INT64 inum1, inum2;
+  DBLINT64 inum1, inum2;
   DBLE dnum1, dnum2;
 
   if (A_TYPEG(ast) == A_CNST) {
@@ -2243,6 +2243,21 @@ print_ast(int ast)
     lbuff[0] = '!';
     put_string(astb.atypes[atype]);
     break;
+  case A_MP_TARGETLOOPTRIPCOUNT:
+    put_string("target loop tripcount");
+    break;
+  case A_MP_MAP:
+    put_string("map");
+    break;
+  case A_MP_EMAP:
+    put_string("end map");
+    break;
+  case A_MP_BREDUCTION:
+    put_string("begin reduction");
+    break;
+  case A_MP_EREDUCTION:
+    put_string("end reduction");
+    break;
   case A_MP_CRITICAL:
   case A_MP_ENDCRITICAL:
     lbuff[0] = '!';
@@ -2445,7 +2460,7 @@ print_ast(int ast)
       acc_pragma(ast);
       put_string("update");
       break;
-    case PR_ACCCOMP:
+    case PR_PCASTCOMPARE:
       acc_pragma(ast);
       put_string("comp");
       break;
@@ -2561,6 +2576,7 @@ print_ast(int ast)
     case PR_ACCCOPYOUT:
     case PR_ACCLOCAL:
     case PR_ACCCREATE:
+    case PR_ACCNO_CREATE:
     case PR_ACCPRESENT:
     case PR_ACCPCOPY:
     case PR_ACCPCOPYIN:
@@ -2568,6 +2584,7 @@ print_ast(int ast)
     case PR_ACCPCREATE:
     case PR_ACCPDELETE:
     case PR_ACCDELETE:
+    case PR_ACCDEVICEPTR:
     case PR_ACCATTACH:
     case PR_ACCDETACH:
     case PR_ACCMIRROR:
@@ -2620,6 +2637,9 @@ print_ast(int ast)
       case PR_ACCCREATE:
         put_string("create(");
         break;
+      case PR_ACCNO_CREATE:
+        put_string("no_create(");
+        break;
       case PR_ACCDELETE:
         put_string("delete(");
         break;
@@ -2640,6 +2660,9 @@ print_ast(int ast)
         break;
       case PR_ACCPDELETE:
         put_string("pdelete(");
+        break;
+      case PR_ACCDEVICEPTR:
+        put_string("deviceptr(");
         break;
       case PR_ACCATTACH:
         put_string("attach(");
@@ -2666,7 +2689,7 @@ print_ast(int ast)
         put_string("update if_present device(");
         break;
       case PR_ACCCOMPARE:
-        put_string("compare(");
+        put_string("acc_compare(");
         break;
       case PR_PGICOMPARE:
         put_string("pgi_compare(");
@@ -2748,6 +2771,16 @@ print_ast(int ast)
         print_ast(A_ROPG(ast));
       }
       put_string(")");
+      switch (A_PRAGMATYPEG(ast)) {
+      case PR_ACCUSEDEVICEIFP:
+      case PR_ACCUPDATEHOSTIFP:
+      case PR_ACCUPDATESELFIFP:
+      case PR_ACCUPDATEDEVICEIFP:
+        put_string(" if_present");
+        break;
+      default :
+        break;
+      }
       break;
     case PR_KERNELBEGIN:
       cuf_pragma(ast);

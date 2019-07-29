@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1994-2018, NVIDIA CORPORATION.  All rights reserved.
+ * Copyright (c) 1994-2019, NVIDIA CORPORATION.  All rights reserved.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -684,7 +684,7 @@ rewrite_block_where(void)
     case A_WHERE:
       if (!A_IFSTMTG(ast)) {
         if (wherestack.topwhere == 0) {
-          int std1, ast1, wherenest;
+          int std1, ast1, ast2, wherenest;
           /* this is the outermost WHERE, find outermost ENDWHERE */
           outer_where_std = std;
           outer_endwhere_std = 0;
@@ -694,8 +694,21 @@ rewrite_block_where(void)
             ast1 = STD_AST(std1);
             switch (A_TYPEG(ast1)) {
             case A_WHERE:
-              if (A_IFSTMTG(ast1) == 0)
+              if (A_IFSTMTG(ast1) == 0) {
                 ++wherenest;
+              } else {
+                /* Single-statement WHERE from nested where
+                 * Rewrite to regular nested WHERE */
+                ast2 = mk_stmt(A_ENDWHERE, 0);
+                add_stmt_after(ast2, std1);
+                ast2 = A_IFSTMTG(ast1);
+                ast2 = mk_assn_stmt(A_DESTG(ast2), A_SRCG(ast2), A_DTYPEG(ast2));
+                add_stmt_after(ast2, std1);
+                ast2 = mk_stmt(A_WHERE, 0);
+                A_IFEXPRP(ast2, A_IFEXPRG(ast1));
+                add_stmt_after(ast2, std1);
+                ast_to_comment(STD_AST(std1));
+              }
               break;
             case A_ENDWHERE:
               --wherenest;
@@ -1762,6 +1775,19 @@ normalize_forall(int forall_ast, int asgn_ast, int inlist)
   }
 }
 
+static LOGICAL
+is_reshape(int ast)
+{
+  /* Is the input ast the source array section of a RESHAPE operation? */
+
+  if (A_TYPEG(ast) == A_SUBSCR &&
+      A_TYPEG(A_LOPG(ast)) == A_ID &&
+      A_SPTRG(A_LOPG(ast)) &&
+      strncmp(SYMNAME(A_SPTRG(A_LOPG(ast))), "reshap", 6) == 0)
+    return TRUE;
+  return FALSE;
+}
+
 /*
  * check if array assignment can be collapsed into a single memset/move
  */
@@ -1880,8 +1906,18 @@ collapse_assignment(int asn, int std)
     dest = A_SPTRG(lhs);
     if (SCG(dest) == SC_DUMMY && ASSUMSHPG(dest)) {
       use_numelm = 0;
-      if (ndim > 1 && !CONTIGATTRG(dest))
-        return 0;
+      /* the entire (type is A_ID) lhs array is referenced:
+         take advantage of the convention that the passed in
+         array is always contiguous and allow the collapse
+         to proceed, (only if the rhs is a reshape array
+         section for now) */
+      if (!TARGETG(dest) && is_reshape(rhs)) {
+        /* proceed with other checks */
+      }
+      else {
+        if (ndim > 1 && !CONTIGATTRG(dest))
+          return 0;
+      }
     }
   } else if (A_TYPEG(lhs) == A_MEM) {
     dest = A_SPTRG(A_MEMG(lhs));
@@ -3319,6 +3355,7 @@ gen_allocated_check(int ast, int std, int atype, bool negate,
   int funcid = mk_id(getsymbol("allocated"));
   int argt = mk_argt(1);
   int astif = mk_stmt(atype, 0);
+  int allocstd;
 
   assert(atype == A_IFTHEN || atype == A_ELSEIF, "Bad ast type", atype, ERR_Fatal);
   A_DTYPEP(funcid, DT_LOG);
@@ -3329,7 +3366,8 @@ gen_allocated_check(int ast, int std, int atype, bool negate,
   if (negate)
     astfunc = mk_unop(OP_LNOT, astfunc, DT_LOG);
   A_IFEXPRP(astif, astfunc);
-  add_stmt_before(astif, std);
+  allocstd = add_stmt_before(astif, std);
+  STD_RESCOPE(allocstd) = 1;
 }
 
 /* Generate DOs over each dimension of shape, insert then before std,
@@ -3426,8 +3464,13 @@ gen_bounds_assignments(int astdestparent, int astdestmem, int astsrcparent,
     }
     if (DDTG(A_DTYPEG(A_DESTG(STD_AST(std)))) == DT_DEFERCHAR) {
       int lhs_len = get_len_of_deferchar_ast(A_DESTG(STD_AST(std)));
-      int rhs_len = string_expr_length(A_SRCG(STD_AST(std)));
-      int ast = mk_assn_stmt(lhs_len, rhs_len, DT_INT);
+      int rhs_len, ast;
+      if (is_deferlenchar_ast(A_SRCG(STD_AST(std)))) {
+        rhs_len = get_len_of_deferchar_ast(A_SRCG(STD_AST(std)));
+      } else {
+        rhs_len = string_expr_length(A_SRCG(STD_AST(std)));
+      }
+      ast = mk_assn_stmt(lhs_len, rhs_len, DT_INT);
       add_stmt_before(ast, std);
     }
   } else {
@@ -3733,7 +3776,7 @@ contains_sptr(int astSrc, int sptrDst, int astparent)
 
 /** \brief Checks whether the user specified an empty array subscript such as
  *         (:), (:,:), (:,:,:), etc.
- *  
+ *
  *  \param a is the array subscript ast (A_SUBSCR) to check.
  *
  *  \returns true if \ref a is an empty subscript; else false.
@@ -3760,8 +3803,8 @@ chk_assumed_subscr(int a)
   return true;
 }
 
-/** \brief Create a non-subscripted "alias" or "replacement" ast to a 
- *         subscripted expression. 
+/** \brief Create a non-subscripted "alias" or "replacement" ast to a
+ *         subscripted expression.
  *
  *         This is used in a poly_asn() call where the source argument cannot
  *         directly handle an A_SUBSCR which could be an array slice. This
@@ -3774,7 +3817,7 @@ chk_assumed_subscr(int a)
  *
  *  \returns the replacement ast.
  */
-static int 
+static int
 mk_ptr_subscr(int subAst, int std)
 {
    SPTR ptr;
@@ -3840,7 +3883,7 @@ rewrite_allocatable_assignment(int astasgn, const int std, LOGICAL non_conformab
   int astsrcparent;
   int astif;
   int ast;
-  int targstd;
+  int targstd, newstd;
   int sptrsrc = NOSYM;
   DTYPE dtype = A_DTYPEG(astasgn);
   int astdest = A_DESTG(astasgn);
@@ -3996,7 +4039,7 @@ again:
       flag_con = mk_unop(OP_VAL, flag_con, DT_INT);
       std3 = add_stmt_before(mk_stmt(A_CONTINUE, 0), std2);
       ARGT_ARG(argt, 4) = flag_con;
-      ARGT_ARG(argt, 0) = A_TYPEG(astdest) == A_SUBSCR ? A_LOPG(astdest) 
+      ARGT_ARG(argt, 0) = A_TYPEG(astdest) == A_SUBSCR ? A_LOPG(astdest)
                                                        : astdest;
       ARGT_ARG(argt, 1) = dest_sdsc_ast;
       ARGT_ARG(argt, 2) = mk_ptr_subscr(astsrc, std3);
@@ -4112,12 +4155,14 @@ again:
       }
       astdest2 = mk_subscr(astdest, subs, ndims, DTYPEG(sptrdest));
       ast = mk_allocate(astdest2);
-      add_stmt_before(ast, std);
+      newstd = add_stmt_before(ast, std);
+      STD_RESCOPE(newstd) = 1;
       if (needFinalization) {
         int std2 = add_stmt_before(mk_stmt(A_ELSE, 0), std);
         gen_finalization_for_sym(sptrdest, std2, astdest);
       }
-      add_stmt_before(mk_stmt(A_ENDIF, 0), std);
+      newstd = add_stmt_before(mk_stmt(A_ENDIF, 0), std);
+      STD_RESCOPE(newstd) = 1;
     }
 
     if (XBIT(54, 0x1) && DTYG(dtypedest) == TY_DERIVED && !POINTERG(sptrdest) &&
@@ -4255,9 +4300,14 @@ no_lhs_on_rhs:
       if (DDTG(dtypedest) == DT_DEFERCHAR || DDTG(dtypedest) == DT_DEFERNCHAR) {
         /* Add length check for deferred char to the IF expr as well */
         int lhs_len = size_ast_of(astdest, DDTG(dtypedest));
-        int rhs_len = string_expr_length(astsrc);
-        int binopast = mk_binop(OP_NE, lhs_len, rhs_len, DT_LOG);
-        int ifexpr = mk_binop(OP_LOR, binopast, A_IFEXPRG(astif), DT_LOG);
+        int rhs_len, binopast, ifexpr;
+        if (is_deferlenchar_ast(astsrc)) {
+          rhs_len = get_len_of_deferchar_ast(astsrc);
+        } else {
+          rhs_len = string_expr_length(astsrc);
+        }
+        binopast = mk_binop(OP_NE, lhs_len, rhs_len, DT_LOG);
+        ifexpr = mk_binop(OP_LOR, binopast, A_IFEXPRG(astif), DT_LOG);
         A_IFEXPRP(astif, ifexpr);
       }
     }

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1994-2018, NVIDIA CORPORATION.  All rights reserved.
+ * Copyright (c) 1994-2019, NVIDIA CORPORATION.  All rights reserved.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -180,6 +180,8 @@ typedef struct { /* DO-IF stack entries */
       int count;       /* var=triplet control count -- outermost=1 */
       int kind;        /* temp: 1) curr locality kind; 2) loop component kind */
       bool no_default; /* loop has a DEFAULT(NONE) locality spec? */
+      int popindex;    /* do pop the index symbol */
+      int block_sym;   /* loop body block sym */
       int syms;        /* list of index, local, local_init, and shared syms */
       int last_sym;    /* last sym in syms list */
       int label_syms;  /* list of label syms */
@@ -377,10 +379,12 @@ typedef struct { /* DO-IF stack entries */
 #define DI_TOP_LABEL(d) sem.doif_base[d].u.u1.top_label
 #define DI_DO_AST(d) sem.doif_base[d].u.u1.ast
 #define DI_DOINFO(d) sem.doif_base[d].u.u1.doinfo
+#define DI_DO_POPINDEX(d) sem.doif_base[d].u.u1.popindex
 #define DI_CONC_SYMAVL(d) sem.doif_base[d].u.u1.symavl
 #define DI_CONC_COUNT(d) sem.doif_base[d].u.u1.count
 #define DI_CONC_KIND(d) sem.doif_base[d].u.u1.kind
 #define DI_CONC_NO_DEFAULT(d) sem.doif_base[d].u.u1.no_default
+#define DI_CONC_BLOCK_SYM(d) sem.doif_base[d].u.u1.block_sym
 #define DI_CONC_SYMS(d) sem.doif_base[d].u.u1.syms
 #define DI_CONC_LAST_SYM(d) sem.doif_base[d].u.u1.last_sym
 #define DI_CONC_LABEL_SYMS(d) sem.doif_base[d].u.u1.label_syms
@@ -1157,6 +1161,7 @@ typedef struct {
   int doif_size;      /* size in records of DOIF stack area.  */
   DOIF *doif_base;    /* base pointer for DOIF stack area. */
   int doif_depth;     /* current DO-IF nesting level */
+  SPTR index_sym_to_pop;    /* DO index symbol to pop off hash link at end of loop */
   SPTR doconcurrent_symavl; /* stb.stg_avail value at start of do concurrent */
   DTYPE doconcurrent_dtype; /* explicit do concurrent index data type */
   int eqvlist;        /* head of list of equivalences */
@@ -1298,6 +1303,7 @@ typedef struct {
                             * needs to be a DO.
                             */
   int collapsed_acc_do;    /* value of collapse clause for acc loop */
+  int seq_acc_do;    /* acc loop with 'seq' clause */
   int expect_cuf_do; /* next statement after CUF KERNELS needs to be a DO.  */
   LOGICAL close_pdo; /* A DO loop for a PDO, PARALLELDO, or DOACROSS
                       * has been processed and its removal from the
@@ -1444,7 +1450,11 @@ typedef struct {
   SPTR modhost_entry;         /* ST_ENTRY of a module host routine containing an
                                * internal procedure (set on demand)
                                */
-  bool module_procedure;   /* in instantiated MODULE PROCEDURE <id> def'n */
+  bool module_procedure;      /* in instantiated MODULE PROCEDURE <id> def'n */
+  bool in_array_const;        /* true when we are currently processing an
+                               * array constructor.
+                               */
+  bool parsing_operator;      /* true when we are parsing an ST_OPERATOR */
 } SEM;
 
 extern SEM sem;
@@ -1453,7 +1463,7 @@ extern SEM sem;
  * NTYPE - number of basic types; this must include the NCHARACTER
  * type even though it may not be an available feature.
  */
-#define NTYPE 21
+#define NTYPE 23
 
 extern INT cast_types[NTYPE][2][2];
 
@@ -1484,6 +1494,7 @@ void CheckDecl(int);
 void end_contained(void);
 
 /* semsmp.c */
+LOGICAL use_opt_atomic(int);
 int emit_epar(void);
 int emit_etarget(void);
 void is_dovar_sptr(int);
@@ -1514,7 +1525,9 @@ int do_distbegin(DOINFO *, int, int);
 
 /* semutil.c */
 void check_derived_type_array_section(int);
+int gen_poly_element_arg(int ast, SPTR sptr, int std);
 int add_ptr_assign(int, int, int);
+void gen_contig_check(int dest, int src, SPTR sdsc, int lineno, bool cs, int std);
 int collapse_begin(DOINFO *);
 int collapse_add(DOINFO *);
 void link_parents(STSK *, int);
