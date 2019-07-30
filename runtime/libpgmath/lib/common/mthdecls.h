@@ -707,5 +707,10 @@ extern _Complex double ctan(_Complex double);
  * during the build process.
  */
 
+#ifdef __APPLE__
+#define __mth_sincos(_a,_s,_c) __sincosf(_a,_s,_c)
+#define __mth_dsincosf(_a,_s,_c) __sincos(_a,_s,_c)
+#else
 #define	__mth_sincos(_a,_s,_c) sincosf(_a,_s,_c)
 #define	__mth_dsincos(_a,_s,_c) sincos(_a,_s,_c)
+#endif
