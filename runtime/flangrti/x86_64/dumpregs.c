@@ -15,7 +15,8 @@
  *
  */
 
-#if !defined(TARGET_WIN)
+#include "flangrti_config.h"
+#if defined(HAVE_GREGSET_T)
 #include <sys/ucontext.h>
 #endif
 #include "stdioInterf.h"
@@ -40,7 +41,7 @@
 #define RSP 15
 #define RIP 16
 
-#if defined(TARGET_OSX) || defined(TARGET_WIN)
+#if !defined(HAVE_GREGSET_T)
 /* no gregs and/or ucontext defined in for OSX or Windows */
 void * 
 getRegs(void *u)
@@ -57,7 +58,6 @@ dumpregs(void *regs)
 void
 dumpregs(gregset_t *regs)
 {
-#if defined(LINUX8664)
   fprintf(__io_stderr(), "   rax %016lx, rbx %016lx, rcx %016lx\n",
           (*regs)[RAX], (*regs)[RBX], (*regs)[RCX]);
   fprintf(__io_stderr(), "   rdx %016lx, rsp %016lx, rbp %016lx\n",
@@ -69,7 +69,6 @@ dumpregs(gregset_t *regs)
   fprintf(__io_stderr(), "   r12 %016lx, r13 %016lx, r14 %016lx\n",
           (*regs)[R12], (*regs)[R13], (*regs)[R14]);
   fprintf(__io_stderr(), "   r15 %016lx\n", (unsigned long)(*regs)[R15]);
-#endif
 }
 
 gregset_t *

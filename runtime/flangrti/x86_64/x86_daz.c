@@ -15,17 +15,20 @@
  *
  */
 
-#include <sys/ucontext.h>
+/* -Mdaz run-time support.
+ * For fortran and C main programs, the compiler will add the address of
+ * the support routine to ctors
+ */
 
 void
-dumpregs(gregset_t *regs)
+__daz(void)
 {
+  __asm__("pushq	%rax");
+  __asm__("stmxcsr	(%rsp)");
+  __asm__("popq	%rax");
+  __asm__("orq	$64, %rax");
+  __asm__("pushq	%rax");
+  __asm__("ldmxcsr	(%rsp)");
+  __asm__("popq	%rax");
 }
-  
-
-gregset_t *
-getRegs(ucontext_t *u)
-{ 
-  return (gregset_t *)0;
-} 
 

@@ -15,22 +15,32 @@
  *
  */
 
-/* -Mdaz run-time support.
- * For fortran and C main programs, the compiler will add the address of
- * the support routine to ctors
- */
+#include "flangrti_config.h"
+#if defined(HAVE_GREGSET_T)
+#include <sys/ucontext.h>
 
 void
-__daz(void)
+dumpregs(gregset_t *regs)
 {
-#ifdef TARGET_LINUX_X8664
-  __asm__("pushq	%rax");
-  __asm__("stmxcsr	(%rsp)");
-  __asm__("popq	%rax");
-  __asm__("orq	$64, %rax");
-  __asm__("pushq	%rax");
-  __asm__("ldmxcsr	(%rsp)");
-  __asm__("popq	%rax");
-#endif
 }
 
+gregset_t *
+getRegs(ucontext_t *u)
+{ 
+  return (gregset_t *)0;
+}
+
+#else
+
+void
+dumpregs(void *regs)
+{
+}
+
+void *
+getRegs(void *u)
+{
+  return (void *)0;
+}
+
+#endif

@@ -14,19 +14,9 @@
 # limitations under the License.
 #
 
-if( ${TARGET_ARCHITECTURE} STREQUAL "x86_64" )
-  set(ARCH_DEP_FILES
-    x86_64-Linux/ll_abi.cpp
-  )
-elseif( ${TARGET_ARCHITECTURE} STREQUAL "aarch64" )
-  set(ARCH_DEP_FILES
-      aarch64-Linux/ll_abi.cpp
-  )
-elseif( ${TARGET_ARCHITECTURE} STREQUAL "ppc64le" )
-  set(ARCH_DEP_FILES
-    ppc64le-Linux/ll_abi.cpp
-  )
-endif()
+set(ARCH_DEP_FILES
+  ${TARGET_ARCHITECTURE}/ll_abi.cpp
+)
 
 set(SOURCES
   ${ARCH_DEP_FILES}
@@ -98,7 +88,7 @@ set(INCLUDE_DIRS
   ${FLANG_SOURCE_DIR}/lib/scutil
   ${CMAKE_CURRENT_SOURCE_DIR}
   ${CMAKE_CURRENT_BINARY_DIR}
-  ${CMAKE_CURRENT_SOURCE_DIR}/${TARGET_ARCHITECTURE}-${TARGET_OS}
+  ${CMAKE_CURRENT_SOURCE_DIR}/${TARGET_ARCHITECTURE}
   ${UTILS_SYMTAB_BIN_DIR}        # Symbol table headers
   ${UTILS_ILI_BIN_DIR}           # ILI IR headers
   ${UTILS_ILM_BIN_DIR}           # ILM IR headers
@@ -139,10 +129,14 @@ target_compile_options(flang2
   )
 
 target_link_libraries(flang2
+  PRIVATE
   flangArgParser
-  ${FLANG_LIB_DIR}/scutil.a
-  -lm
+  scutil
   )
+
+if (NOT MSVC)
+  target_link_libraries(flang2 PRIVATE m)
+endif()
 
 add_dependencies(flang2
   gen_backend_error_headers # Error message headers

@@ -1,3 +1,4 @@
+
 #
 # Copyright (c) 2017-2019, NVIDIA CORPORATION.  All rights reserved.
 #
@@ -16,25 +17,25 @@
 
 enable_language(C ASM) # Enable assembly
 
+set(ARCH_DEP_FILES
+  ${TARGET_ARCHITECTURE}/flt_env.c
+  ${TARGET_ARCHITECTURE}/dumpregs.c
+)
+include(CheckTypeSize)
+
+set(CMAKE_EXTRA_INCLUDE_FILES "sys/ucontext.h")
+CHECK_TYPE_SIZE("gregset_t" GREGSET_T LANGUAGE C)
+set(CMAKE_EXTRA_INCLUDE_FILES )
+
+configure_file(flangrti_config.h.in flangrti_config.h)
+
 SET(ASM_OPTIONS "-DLINUX_ELF")
 SET(CMAKE_ASM_FLAGS "${CFLAGS} ${ASM_OPTIONS}" )
 
 if( ${TARGET_ARCHITECTURE} STREQUAL "x86_64" )
-  set(ARCH_DEP_FILES 
-    x86_64-Linux/flt_env.c
-    x86_64-Linux/x86_daz.c
-    x86_64-Linux/x86_flushz.c
-    x86_64-Linux/dumpregs.c
-  )
-elseif( ${TARGET_ARCHITECTURE} STREQUAL "aarch64" )
-  set(ARCH_DEP_FILES
-      aarch64-Linux/flt_env.c
-      aarch64-Linux/dumpregs.c
-  )
-elseif( ${TARGET_ARCHITECTURE} STREQUAL "ppc64le" )
-  set(ARCH_DEP_FILES
-    ppc64le-Linux/flt_env.c
-    ppc64le-Linux/dumpregs.c
+  set(ARCH_DEP_FILES ${ARCH_DEP_FILES}
+    x86_64/x86_daz.c
+    x86_64/x86_flushz.c
   )
 endif()
 
@@ -80,7 +81,11 @@ add_flang_library(flangrti_static
   ${PGC_SRC_FILES}
   ${SHARED_SOURCES}
   )
-set_property(TARGET flangrti_static PROPERTY OUTPUT_NAME flangrti)
+if (MSVC)
+  set_property(TARGET flangrti_static PROPERTY OUTPUT_NAME libflangrti)
+else()
+  set_property(TARGET flangrti_static PROPERTY OUTPUT_NAME flangrti)
+endif()
 
 
 set(SHARED_LIBRARY TRUE)
@@ -90,22 +95,25 @@ add_flang_library(flangrti_shared
   )
 
 # Resolve symbols against libm
-target_link_libraries(flangrti_shared m)
+if (NOT MSVC)
+  target_link_libraries(flangrti_shared PRIVATE m)
+endif()
+
 
 # Import OpenMP
 if (NOT DEFINED LIBOMP_EXPORT_DIR)
   find_library( 
     FLANG_LIBOMP
-    libomp.so
+    NAMES omp libomp
     HINTS ${CMAKE_BINARY_DIR}/lib)
-  target_link_libraries(flangrti_shared ${FLANG_LIBOMP})
+  target_link_libraries(flangrti_shared PRIVATE ${FLANG_LIBOMP})
 endif()
 
 find_library( 
   LIBPGMATH
-  libpgmath.so
+  NAMES pgmath libpgmath
   HINTS ${CMAKE_BINARY_DIR}/lib)
-target_link_libraries(flangrti_shared ${LIBPGMATH})
+target_link_libraries(flangrti_shared PRIVATE ${LIBPGMATH})
 
 if( ${TARGET_ARCHITECTURE} STREQUAL "aarch64" )
   target_compile_definitions(flangrti_static PRIVATE TARGET_LINUX_ARM)
@@ -121,19 +129,24 @@ set(SHARED_LIBRARY FALSE)
 target_include_directories(flangrti_static
   PRIVATE
   ${CMAKE_CURRENT_SOURCE_DIR}
+  ${CMAKE_CURRENT_BINARY_DIR}
   )
 
 target_include_directories(flangrti_shared
   PRIVATE
   ${CMAKE_CURRENT_SOURCE_DIR}
+  ${CMAKE_CURRENT_BINARY_DIR}
   )
 
 set_target_properties(flangrti_shared flangrti_static
                       PROPERTIES ARCHIVE_OUTPUT_DIRECTORY ${FLANG_RTE_LIB_DIR})
 
-target_compile_options(flangrti_static PRIVATE -fPIC)
-
-target_compile_options(flangrti_shared PRIVATE -fPIC)
+if (NOT MSVC)
+  target_compile_options(flangrti_static PRIVATE -fPIC)
+  target_compile_options(flangrti_shared PRIVATE -fPIC)
+else()
+  set_target_properties(flangrti_shared PROPERTIES WINDOWS_EXPORT_ALL_SYMBOLS TRUE)
+endif()
 
 target_compile_options(flangrti_static PUBLIC $<$<COMPILE_LANGUAGE:Fortran>:-Mreentrant>)
 
