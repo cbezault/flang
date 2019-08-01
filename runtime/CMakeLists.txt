@@ -32,29 +32,31 @@ endif()
 add_definitions(
  -DMAXCPUS=256 
  -DMAXCPUSL=8 
- -DMAXCPUSR=8 
- -DTARGET_LLVM 
+ -DMAXCPUSR=8
+ -DTARGET_LLVM
  -DPGF90 
  -DPGFLANG
  -DNATIVE_FPCVT
  -DPGI_LITTLE_ENDIAN
  -DINLINE_MEMOPS
+ -DTARGET_${OS}
+ -D${OS}
 )
 
 if( ${TARGET_ARCHITECTURE} STREQUAL "x86_64" )
   add_definitions(
    -DTARGET_X8664
-   -DTARGET_LINUX_X8664
+   -DTARGET_${OS}_X8664
   )
 elseif( ${TARGET_ARCHITECTURE} STREQUAL "aarch64" )
   add_definitions(
    -DTARGET_LLVM_ARM64
-   -DTARGET_LINUX_ARM
+   -DTARGET_${OS}_ARM
   )
 elseif( ${TARGET_ARCHITECTURE} STREQUAL "ppc64le" )
   add_definitions(
-    -DTARGET_LINUX_POWER
-    -DLINUX_POWER
+    -DTARGET_${OS}_POWER
+    -D${OS}_POWER
   )
 endif()
 

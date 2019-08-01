@@ -129,10 +129,14 @@ target_compile_options(flang2
   )
 
 target_link_libraries(flang2
+  PRIVATE
   flangArgParser
-  ${FLANG_LIB_DIR}/scutil.a
-  -lm
+  scutil
   )
+
+if (NOT MSVC)
+  target_link_libraries(flang2 PRIVATE m)
+endif()
 
 add_dependencies(flang2
   gen_backend_error_headers # Error message headers
