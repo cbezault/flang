@@ -20,11 +20,13 @@
  *  \file
  *  Declare routines that access the machine registers
  */
-#if defined(TARGET_OSX) || defined(TARGET_WIN)
-#define gregset_t void
-void dumpregs(void *);
-void *getRegs(void *);
-#else
+
+#include "flangrti_config.h"
+
+#if defined(HAVE_GREGSET_T)
 void dumpregs(gregset_t *regs);
 gregset_t *getRegs(ucontext_t *u);
+#else
+void dumpregs(void *regs);
+void *getRegs(void *u);
 #endif

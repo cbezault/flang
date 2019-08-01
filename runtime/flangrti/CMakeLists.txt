@@ -20,6 +20,16 @@ set(ARCH_DEP_FILES
   ${TARGET_ARCHITECTURE}/flt_env.c
   ${TARGET_ARCHITECTURE}/dumpregs.c
 )
+include(CheckTypeSize)
+
+set(CMAKE_EXTRA_INCLUDE_FILES "sys/ucontext.h")
+CHECK_TYPE_SIZE("gregset_t" GREGSET_T LANGUAGE C)
+set(CMAKE_EXTRA_INCLUDE_FILES )
+
+configure_file(flangrti_config.h.in flangrti_config.h)
+
+SET(ASM_OPTIONS "-DLINUX_ELF")
+SET(CMAKE_ASM_FLAGS "${CFLAGS} ${ASM_OPTIONS}" )
 
 if( ${TARGET_ARCHITECTURE} STREQUAL "x86_64" )
   set(ARCH_DEP_FILES ${ARCH_DEP_FILES}
@@ -111,11 +121,13 @@ set(SHARED_LIBRARY FALSE)
 target_include_directories(flangrti_static
   PRIVATE
   ${CMAKE_CURRENT_SOURCE_DIR}
+  ${CMAKE_CURRENT_BINARY_DIR}
   )
 
 target_include_directories(flangrti_shared
   PRIVATE
   ${CMAKE_CURRENT_SOURCE_DIR}
+  ${CMAKE_CURRENT_BINARY_DIR}
   )
 
 set_target_properties(flangrti_shared flangrti_static

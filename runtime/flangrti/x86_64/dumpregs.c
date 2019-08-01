@@ -15,7 +15,8 @@
  *
  */
 
-#if !defined(TARGET_WIN)
+#include "flangrti_config.h"
+#if defined(HAVE_GREGSET_T)
 #include <sys/ucontext.h>
 #endif
 #include "stdioInterf.h"
@@ -40,7 +41,7 @@
 #define RSP 15
 #define RIP 16
 
-#if defined(TARGET_OSX) || defined(TARGET_WIN)
+#if !defined(HAVE_GREGSET_T)
 /* no gregs and/or ucontext defined in for OSX or Windows */
 void * 
 getRegs(void *u)
