@@ -76,7 +76,7 @@
   #define VEC_LOAD(_a)    *((VFLOAT *)(_a))
 #endif
 
-#ifndef __APPLE__
+#if !defined(TARGET_OSX) && !defined(TARGET_WIN)
 extern  void   SINCOS(FLOAT, FLOAT *, FLOAT *);
 #endif
 extern  VFLOAT  VFLOATRETURN(VFLOAT, VFLOAT);
