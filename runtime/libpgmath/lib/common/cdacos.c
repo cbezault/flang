@@ -23,7 +23,7 @@
 ZMPLXFUNC_Z(__mth_i_cdacos)
 {
   ZMPLXARGS_Z;
-  LIBPGMATH_COMPLEX_DOUBLE_TYPE d = LIBPGMATH_CREATE_COMPLEX(real, imag);
-  d = cacos(d);
+  double_complex_t d;
+  d = cacos(zarg);
   ZRETURN_Z(d);
 }

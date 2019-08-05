@@ -23,7 +23,7 @@
 CMPLXFUNC_C(__mth_i_casin)
 {
   CMPLXARGS_C;
-  LIBPGMATH_COMPLEX_FLOAT_TYPE f = LIBPGMATH_CREATE_COMPLEX(real, imag);
-  f = CASINF(f);
+  float_complex_t f;
+  f = casinf(carg);
   CRETURN_C(f);
 }

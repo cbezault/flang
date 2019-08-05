@@ -16,7 +16,6 @@
 
 include_directories(${CMAKE_CURRENT_SOURCE_DIR})
 
-#if(NOT ${CMAKE_SYSTEM_NAME} MATCHES "Windows")
   if(${LIBPGMATH_SYSTEM_PROCESSOR} MATCHES "x86_64|ppc64le|aarch64" AND NOT ${LIBPGMATH_WITH_GENERIC})
     add_subdirectory("acos")
     add_subdirectory("asin")
@@ -33,7 +32,6 @@ include_directories(${CMAKE_CURRENT_SOURCE_DIR})
   endif()
     add_subdirectory("powi")
     add_subdirectory("sincos")
-#endif()
 
 # Get compiler definitions
 get_property(FLAGS GLOBAL PROPERTY "FLAGS_L1")

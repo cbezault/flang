@@ -23,7 +23,7 @@
 CMPLXFUNC_C(__mth_i_ctanh)
 {
   CMPLXARGS_C;
-  LIBPGMATH_COMPLEX_FLOAT_TYPE f = LIBPGMATH_CREATE_COMPLEX(real, imag);
-  f = CTANHF(f);
+  float_complex_t f;
+  f = ctanhf(carg);
   CRETURN_C(f);
 }

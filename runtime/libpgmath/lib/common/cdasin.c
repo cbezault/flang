@@ -23,7 +23,7 @@
 ZMPLXFUNC_Z(__mth_i_cdasin)
 {
   ZMPLXARGS_Z;
-  LIBPGMATH_COMPLEX_DOUBLE_TYPE d = LIBPGMATH_CREATE_COMPLEX(real, imag);
-  d = casin(d);
+  double_complex_t d;
+  d = casin(zarg);
   ZRETURN_Z(d);
 }

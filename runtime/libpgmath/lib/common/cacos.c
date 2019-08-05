@@ -23,7 +23,7 @@
 CMPLXFUNC_C(__mth_i_cacos)
 {
   CMPLXARGS_C;
-  LIBPGMATH_COMPLEX_FLOAT_TYPE f = LIBPGMATH_CREATE_COMPLEX(real, imag);
-  f = CACOSF(f);
+  float_complex_t f;
+  f = cacosf(carg);
   CRETURN_C(f);
 }

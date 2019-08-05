@@ -24,10 +24,10 @@
  * the return sequence.
  */
 
-double _Complex __mth_i_dsincos(double a)
+double_complex_t __mth_i_dsincos(double a)
 {
   double s, c;
   __mth_dsincos(a, &s, &c);
-  LIBPGMATH_COMPLEX_DOUBLE_TYPE r = LIBPGMATH_CREATE_COMPLEX(s, c);
+  double_complex_t r = PGMATH_CMPLX_CONST(s, c);
   return r;
 }
